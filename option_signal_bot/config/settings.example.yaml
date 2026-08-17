@@ -1,0 +1,91 @@
+# نمونه تنظیمات — این فایل را به `config/settings.yaml` کپی و مقادیر واقعی را جایگزین کنید.
+# ⚠️ هیچ توکن یا مقدار واقعی در این فایل نگذارید؛ `settings.yaml` در .gitignore است.
+
+general:
+  log_level: INFO              # DEBUG | INFO | WARNING | ERROR
+  poll_interval_seconds: 300   # فاصله هر پاس رصد بازار
+  run_only_when_market_open: true
+
+market_data:
+  provider: mock               # mock | pytse   (mock = داده مصنوعی برای تست)
+  symbols:
+    - خودرو
+    - فولاد
+  history_days: 90
+  risk_free_rate: 0.25         # نرخ بهره بدون ریسک سالانه (اعشاری)
+
+option_chain:
+  provider: mock               # mock | tsetmc  (tsetmc در مایل‌استون بعدی)
+  strikes_per_side: 4          # تعداد استرایک هر طرف ATM در زنجیره mock
+  expiry_days: [21, 49, 90]    # سررسیدهای شبیه‌سازی‌شده
+  base_vol: 0.55               # نوسان پایه برای ساخت پرمیوم mock
+  spread_pct: 0.03             # اسپرد مظنه خرید/فروش
+
+signals:
+  validity_minutes: 30         # مدت اعتبار هر سیگنال
+  dedupe_window_minutes: 60    # تا این مدت سیگنال تکراری صادر نمی‌شود
+  min_confidence: null         # مثلاً 0.3 برای فیلتر سیگنال‌های ضعیف
+
+risk:
+  account_equity: 1000000000   # دارایی حساب به ریال
+  risk_per_trade_pct: 1.0      # درصد ریسک در هر معامله
+  max_position_pct: 5.0        # سقف درصد دارایی در یک پوزیشن
+  max_contracts: 50            # سقف تعداد قرارداد در هر سیگنال
+  stop_loss_pct: 35.0          # درصد افت پرمیوم برای حد ضرر پیشنهادی
+  take_profit_pct: 70.0        # درصد رشد پرمیوم برای حد سود پیشنهادی
+
+strategies:
+  directional_ma_cross:
+    enabled: true
+    params:
+      fast_window: 5
+      slow_window: 20
+      momentum_window: 10
+      min_separation_pct: 0.5
+      min_momentum_pct: 2.0
+      target_moneyness: 0.05   # ۵٪ OTM
+      min_days_to_expiry: 14
+      max_days_to_expiry: 90
+      min_open_interest: 50
+  neutral_iv_spread:
+    enabled: true
+    params:
+      trend_window: 20
+      range_threshold_pct: 3.0
+      rich_iv_ratio: 1.30
+      cheap_iv_ratio: 0.80
+      covered_call_moneyness: 0.08
+      min_days_to_expiry: 14
+      max_days_to_expiry: 60
+      min_open_interest: 50
+      enable_covered_call: true
+      enable_straddle: true
+
+notifiers:
+  console:
+    enabled: true
+    as_json: false
+  telegram:
+    enabled: false
+    # مقدار واقعی را این‌جا نگذارید؛ از متغیرهای محیطی استفاده کنید:
+    #   TELEGRAM_BOT_TOKEN و TELEGRAM_CHAT_ID
+    bot_token: "<YOUR_TELEGRAM_BOT_TOKEN>"
+    chat_id: "<YOUR_TELEGRAM_CHAT_ID>"
+
+storage:
+  enabled: true
+  # مسیرهای نسبی، نسبت به ریشه پروژه حل می‌شوند. پوشه var/ فقط خروجی اجراست
+  # (در .gitignore) تا پوشه‌های کد، کد بمانند.
+  sqlite_path: var/signals.db
+  jsonl_path: var/signals.jsonl
+
+backtest:
+  history_days: 180
+  horizon_days: 10
+  warmup_days: 30
+  step_days: 1
+
+# مایل‌استون ۱: اجرای سفارش وجود ندارد و این مقدار باید false بماند.
+# فقط یک اینترفیس انتزاعی در execution/order_executor_interface.py هست.
+execution:
+  enabled: false
