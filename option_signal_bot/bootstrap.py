@@ -24,6 +24,14 @@ from data.market_data_client import (
     PytseMarketDataClient,
 )
 from data.option_chain_client import MockOptionChainClient, OptionChainClient
+from data.tsetmc_market_data_client import TsetmcMarketDataClient
+from data.tsetmc_option_chain_client import (
+    DataQualityRules,
+    FilePayloadSource,
+    HttpPayloadSource,
+    PayloadSource,
+    TsetmcOptionChainClient,
+)
 from notifiers.base_notifier import BaseNotifier
 from notifiers.console_notifier import ConsoleNotifier
 from notifiers.telegram_notifier import TelegramNotifier
@@ -34,20 +42,86 @@ from strategies.registry import create_strategies
 
 logger = logging.getLogger(__name__)
 
+def _payload_source(config: dict[str, Any]) -> PayloadSource:
+    """منبع پاسخ TSETMC از تنظیمات؛ `fixture_path` یعنی پخش پاسخ ضبط‌شده."""
+    fixture_path = config.get("fixture_path")
+    if fixture_path:
+        return FilePayloadSource(resolve_path(fixture_path))
+    return HttpPayloadSource(
+        market=config.get("market", 0),
+        timeout=config.get("timeout", 15),
+        retries=config.get("retries", 3),
+    )
+
+
 #: نام provider در تنظیمات → سازنده کلاینت داده پایه
 MARKET_DATA_PROVIDERS: dict[str, Callable[[dict[str, Any]], MarketDataClient]] = {
     "mock": lambda _config: MockMarketDataClient(),
-    "pytse": lambda _config: PytseMarketDataClient(),
+    "pytse": lambda config: PytseMarketDataClient(
+        allow_fallback=config.get("allow_fallback", True)
+    ),
+    "tsetmc": lambda config: TsetmcMarketDataClient(
+        source=_payload_source(config),
+        timeout=config.get("timeout", 20),
+        retries=config.get("retries", 3),
+        history_ttl_seconds=config.get("history_ttl_seconds", 900.0),
+    ),
 }
 
+
+def _build_tsetmc_chain(config, market_data, _risk_free_rate) -> OptionChainClient:
+    """زنجیره زنده از API عمومی TSETMC (بدون احراز هویت).
+
+    اگر کلاینت داده پایه هم TSETMC باشد، **همان منبع** به اشتراک گذاشته می‌شود تا
+    قیمت پایه و مظنه آپشن از یک پاسخ (و یک لحظه) بیایند و درخواست تکراری نرود.
+    """
+    shared = getattr(market_data, "source", None)
+    if isinstance(shared, HttpPayloadSource):
+        return TsetmcOptionChainClient(
+            shared,
+            cache_ttl_seconds=config.get("cache_ttl_seconds", 20.0),
+            quality=build_dataclass(
+                DataQualityRules, config.get("quality") or {}, "option_chain.quality"
+            ),
+        )
+    return TsetmcOptionChainClient(
+        HttpPayloadSource(
+            market=config.get("market", 0),
+            timeout=config.get("timeout", 15),
+            retries=config.get("retries", 3),
+        ),
+        cache_ttl_seconds=config.get("cache_ttl_seconds", 20.0),
+        quality=build_dataclass(
+            DataQualityRules, config.get("quality") or {}, "option_chain.quality"
+        ),
+    )
+
+
+def _build_fixture_chain(config, market_data, _risk_free_rate) -> OptionChainClient:
+    """پخش مجدد یک پاسخ ضبط‌شده TSETMC — تست آفلاین و بازتولید یک روز خاص."""
+    path = config.get("fixture_path")
+    if not path:
+        raise ValueError(
+            "برای provider «fixture» باید مقدار option_chain.fixture_path تنظیم شود."
+        )
+    return TsetmcOptionChainClient(
+        FilePayloadSource(resolve_path(path)),
+        cache_ttl_seconds=float("inf"),  # فایل ثابت است؛ یک بار خوانده می‌شود
+        quality=build_dataclass(
+            DataQualityRules, config.get("quality") or {}, "option_chain.quality"
+        ),
+    )
+
+
 #: نام provider در تنظیمات → سازنده کلاینت زنجیره آپشن
-#: TODO(مایل‌استون ۲): افزودن "tsetmc" با پیاده‌سازی واقعی زنجیره آپشن
 OPTION_CHAIN_PROVIDERS: dict[str, Callable[..., OptionChainClient]] = {
     "mock": lambda config, market_data, risk_free_rate: MockOptionChainClient(
         market_data,
         risk_free_rate=risk_free_rate,
         **_mock_chain_kwargs(config),
     ),
+    "tsetmc": _build_tsetmc_chain,
+    "fixture": _build_fixture_chain,
 }
 
 

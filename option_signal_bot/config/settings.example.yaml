@@ -7,15 +7,45 @@ general:
   run_only_when_market_open: true
 
 market_data:
-  provider: mock               # mock | pytse   (mock = داده مصنوعی برای تست)
+  # tsetmc = داده واقعی از API عمومی TSETMC (بدون نیاز به لاگین یا توکن)
+  # pytse  = کتابخانه pytse-client
+  # mock   = داده مصنوعی برای تست
+  provider: tsetmc
+  # فقط نمادهایی که آپشن دارند. لیست به‌روز را ببینید با:
+  #   python scripts/fetch_tsetmc_sample.py
   symbols:
     - خودرو
-    - فولاد
+    - اهرم
+    - شستا
   history_days: 90
-  risk_free_rate: 0.25         # نرخ بهره بدون ریسک سالانه (اعشاری)
+  risk_free_rate: 0.28         # نرخ بهره بدون ریسک سالانه (اعشاری)
+  history_ttl_seconds: 900     # کش تاریخچه (فقط provider=tsetmc)
+  # مخصوص provider=pytse: در اجرای واقعی false بگذارید تا خطای دیتا پنهان نشود
+  # و سیگنال با قیمت mock ساخته نشود
+  allow_fallback: false
 
 option_chain:
-  provider: mock               # mock | tsetmc  (tsetmc در مایل‌استون بعدی)
+  # tsetmc  = زنجیره واقعی از دیده‌بان بازار آپشن TSETMC (یک درخواست، کل بازار)
+  # fixture = پخش یک پاسخ ضبط‌شده (تست آفلاین / بازتولید یک روز خاص)
+  # mock    = زنجیره مصنوعی
+  provider: tsetmc
+  market: 0                    # 0=همه، 1=بورس، 2=فرابورس
+  cache_ttl_seconds: 20        # کش پاسخ؛ همه نمادهای یک پاس از آن تغذیه می‌شوند
+  timeout: 15
+  retries: 3
+
+  # گیت‌های کیفیت داده: بازار واقعی پر از نمادهای مرده است و بدون این‌ها
+  # استراتژی روی قیمت بی‌معنا سیگنال می‌دهد.
+  quality:
+    require_quote: true          # حداقل یک سمت مظنه یا یک معامله
+    max_relative_spread: 0.35    # اسپرد نسبی بیشتر از این رد می‌شود (null = بی‌حد)
+    drop_zero_open_interest: true
+    min_days_to_expiry: 3        # سررسیدهای خیلی نزدیک حذف شوند
+
+  # مخصوص provider=fixture
+  # fixture_path: tests/fixtures/tsetmc_option_market_watch.json
+
+  # مخصوص provider=mock
   strikes_per_side: 4          # تعداد استرایک هر طرف ATM در زنجیره mock
   expiry_days: [21, 49, 90]    # سررسیدهای شبیه‌سازی‌شده
   base_vol: 0.55               # نوسان پایه برای ساخت پرمیوم mock

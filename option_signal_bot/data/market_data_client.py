@@ -8,9 +8,12 @@ from __future__ import annotations
 
 import math
 import random
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -46,6 +49,9 @@ class Quote:
 class MarketDataClient(ABC):
     """قرارداد دریافت داده نماد پایه. پیاده‌سازی‌ها باید فقط داده بدهند، نه تصمیم."""
 
+    #: برای برچسب‌زدن منبع داده روی هر سیگنال (mock در برابر واقعی)
+    source_name: str = "unknown"
+
     @abstractmethod
     def get_quote(self, symbol: str) -> Quote:
         """آخرین وضعیت قیمتی نماد پایه."""
@@ -69,6 +75,8 @@ class MockMarketDataClient(MarketDataClient):
 
     با `seed` ثابت، خروجی تکرارپذیر است تا تست‌ها قطعی بمانند.
     """
+
+    source_name = "mock"
 
     def __init__(
         self,
@@ -136,10 +144,31 @@ class PytseMarketDataClient(MarketDataClient):
     """
 
     fallback: MarketDataClient | None = None
+    #: در اجرای واقعی این را False بگذارید تا خطای دیتا پنهان نشود
+    allow_fallback: bool = True
     _tickers: dict[str, object] = field(default_factory=dict, init=False, repr=False)
+    _fell_back: bool = field(default=False, init=False, repr=False)
 
     def __post_init__(self) -> None:
         self.fallback = self.fallback or MockMarketDataClient()
+
+    @property
+    def source_name(self) -> str:
+        """اگر یک بار به mock سقوط کرده باشیم، در نام منبع دیده می‌شود."""
+        return "pytse+mock-fallback" if self._fell_back else "pytse"
+
+    def _handle_failure(self, symbol: str, exc: Exception) -> None:
+        """خطای دیتا باید بلند باشد؛ سیگنال ساخته‌شده از داده mock خطرناک است."""
+        logger.error("دریافت داده %s از pytse-client شکست خورد: %s", symbol, exc)
+        if not self.allow_fallback:
+            raise RuntimeError(
+                f"دریافت داده {symbol} شکست خورد و allow_fallback خاموش است."
+            ) from exc
+        self._fell_back = True
+        logger.error(
+            "سقوط به داده mock برای %s — سیگنال‌های این پاس با قیمت مصنوعی ساخته می‌شوند.",
+            symbol,
+        )
 
     def _ticker(self, symbol: str):
         if symbol in self._tickers:
@@ -160,7 +189,8 @@ class PytseMarketDataClient(MarketDataClient):
                 timestamp=datetime.now(),
                 volume=float(getattr(ticker, "value", 0.0) or 0.0),
             )
-        except Exception:  # noqa: BLE001 - هر خطای شبکه/کتابخانه به fallback می‌رود
+        except Exception as exc:  # noqa: BLE001 - هر خطای شبکه/کتابخانه
+            self._handle_failure(symbol, exc)
             return self.fallback.get_quote(symbol)
 
     def get_history(self, symbol: str, days: int = 90) -> list[Candle]:
@@ -177,5 +207,6 @@ class PytseMarketDataClient(MarketDataClient):
                 )
                 for row in frame.itertuples()
             ]
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            self._handle_failure(symbol, exc)
             return self.fallback.get_history(symbol, days)
