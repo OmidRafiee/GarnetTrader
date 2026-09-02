@@ -22,7 +22,12 @@ cd D:\Project\github\GarnetTrader\option_signal_bot
 
 py -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+
+copy config\settings.example.yaml config\settings.yaml
 ```
+
+آخرین خط برای اجرای با **داده واقعی** لازم است. بدون فایل تنظیمات، ربات روی
+`provider: mock` (قیمت ساختگی) کار می‌کند. `--dry-run` به آن نیازی ندارد.
 
 ⚠️ **دو نکته که بیشترین خطا را می‌سازند:**
 
@@ -31,12 +36,28 @@ py -m venv .venv
 | **در پوشه‌ی `option_signal_bot` باشید**، نه ریشه‌ی ریپو | `main.py` و `.venv` اینجا هستند. از ریشه، خطای `could not be loaded` می‌گیرید. |
 | در PowerShell **`.\`** را جا نیندازید | `.venv\...` را PowerShell اسم ماژول می‌فهمد و `Import-Module` پیشنهاد می‌دهد. `.\.venv\...` درست است. |
 
-راه ساده‌تر — یک بار محیط را فعال کنید و بعد `python` خالی کافی است:
+راه ساده‌تر — یک بار محیط را فعال کنید و بعد `python` خالی کافی است.
+
+⚠️ **این دو خط، دو دستور جداگانه‌اند.** اول این را بزنید و **Enter**:
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
+```
+
+اگر درست کار کرد، پیش‌وند `(.venv)` به prompt اضافه می‌شود:
+
+```
+(.venv) PS D:\Project\github\GarnetTrader\option_signal_bot>
+```
+
+**بعد** دستور بعدی را بزنید:
+
+```powershell
 python main.py --dry-run
 ```
+
+اگر هر دو را در **یک خط** بنویسید، PowerShell دومی را آرگومانِ `Activate.ps1`
+می‌فهمد و خطای `A positional parameter cannot be found` می‌دهد.
 
 اگر PowerShell اجازه‌ی اسکریپت نداد:
 `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`
@@ -108,6 +129,19 @@ set TELEGRAM_CHAT_ID=-1001234567890
 
 و در `settings.yaml` مقدار `notifiers.telegram.enabled` را `true` کنید.
 `config/settings.yaml` در `.gitignore` است تا توکن به گیت نرود.
+
+⚠️ **`settings.yaml` را با `Set-Content` یا `Out-File` ویرایش نکنید.** این‌ها
+کامنت‌های فارسی فایل را خراب می‌کنند (double-encode + BOM) و بعدش ربات با یک
+traceback خام از PyYAML می‌افتد:
+`yaml.reader.ReaderError: unacceptable character #x0081`.
+
+برای ویرایش از VS Code یا Notepad++ استفاده کنید (با encoding **UTF-8 بدون BOM**).
+اگر فایل خراب شد، دوباره بسازیدش:
+
+```powershell
+Remove-Item config\settings.yaml
+copy config\settings.example.yaml config\settings.yaml
+```
 
 ### ۴. اجرای عادی
 
