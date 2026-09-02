@@ -33,6 +33,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from config import force_utf8_stdio
 from discovery.api_inventory import (  # noqa: E402
     SENSITIVE_HEADERS,
     ApiCall,
@@ -173,6 +174,8 @@ def capture(url: str, minutes: float, session_file: Path, out_dir: Path) -> ApiI
 
 
 def main(argv: list[str] | None = None) -> int:
+    force_utf8_stdio()
+
     parser = argparse.ArgumentParser(
         description="لاگین دستی در مرورگر قابل‌مشاهده + کشف فهرست APIها (بدون ثبت داده حساب)"
     )

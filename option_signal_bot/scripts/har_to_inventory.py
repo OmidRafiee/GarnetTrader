@@ -23,6 +23,7 @@ from urllib.parse import parse_qsl, urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from config import force_utf8_stdio
 from discovery.api_inventory import (  # noqa: E402
     SENSITIVE_HEADERS,
     ApiCall,
@@ -103,6 +104,8 @@ def build_inventory(har: dict, keep_static: bool = False) -> ApiInventory:
 
 
 def main(argv: list[str] | None = None) -> int:
+    force_utf8_stdio()
+
     parser = argparse.ArgumentParser(description="HAR → فهرست API (بدون مقدار داده)")
     parser.add_argument("har", type=Path, help="مسیر فایل .har")
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR)

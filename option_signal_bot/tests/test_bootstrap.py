@@ -9,7 +9,14 @@ from pathlib import Path
 import pytest
 
 import bootstrap
-from config.loader import build_dataclass, deep_merge, default_settings, load_settings, section
+from config.loader import (
+    SettingsError,
+    build_dataclass,
+    deep_merge,
+    default_settings,
+    load_settings,
+    section,
+)
 from notifiers.console_notifier import ConsoleNotifier
 from risk.risk_calculator import RiskLimits
 from signals.signal_model import OptionType, Side, Signal
@@ -215,3 +222,66 @@ def test_signal_log_creates_missing_directories():
             log.save(_sample_signal())
             assert log.count() == 1
         assert nested.exists()
+
+# ----------------------------------------------------------------------
+# تنظیمات ناخوانا نباید بی‌صدا به داده mock سقوط کند
+# ----------------------------------------------------------------------
+
+
+def _hide_yaml(monkeypatch):
+    """PyYAML را برای این تست ناموجود کن (شبیه‌سازی محیط بدون نصب)."""
+    import builtins
+
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "yaml":
+            raise ImportError("simulated: PyYAML not installed")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+
+
+CFG_BODY = "option_chain:\n  provider: tsetmc\n"
+
+
+def test_existing_config_unreadable_raises_instead_of_mock(monkeypatch, tmp_path):
+    """فایل تنظیمات هست ولی خوانده نمی‌شود → خطا، نه سقوط بی‌صدا به mock.
+
+    سقوط بی‌صدا خطرناک است: ربات با قیمت ساختگی سیگنال می‌دهد که از سیگنال
+    واقعی قابل تشخیص نیست.
+    """
+    cfg = tmp_path / "settings.yaml"
+    cfg.write_text(CFG_BODY, encoding="utf-8")
+    _hide_yaml(monkeypatch)
+
+    with pytest.raises(SettingsError) as err:
+        load_settings(cfg)
+
+    assert "PyYAML" in str(err.value)
+
+
+def test_unreadable_config_allowed_when_caller_wants_mock(monkeypatch, tmp_path):
+    """با require_readable=False (یعنی --mock/--dry-run) خطا نمی‌دهد."""
+    cfg = tmp_path / "settings.yaml"
+    cfg.write_text(CFG_BODY, encoding="utf-8")
+    _hide_yaml(monkeypatch)
+
+    settings = load_settings(cfg, require_readable=False)
+
+    assert settings["option_chain"]["provider"] == "mock"
+
+
+def test_missing_config_is_not_an_error(monkeypatch, tmp_path):
+    """نبودن فایل تنظیمات حالت مجاز است (اجرای بدون نصب)."""
+    _hide_yaml(monkeypatch)
+    settings = load_settings(tmp_path / "does_not_exist.yaml")
+    assert settings["option_chain"]["provider"] == "mock"
+
+
+def test_force_utf8_stdio_is_idempotent_and_safe():
+    """صدا زدن چندباره نباید خطا بدهد، حتی وقتی جریان reconfigure ندارد."""
+    from config import force_utf8_stdio
+
+    force_utf8_stdio()
+    force_utf8_stdio()

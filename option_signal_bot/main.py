@@ -19,7 +19,8 @@ from pathlib import Path
 from typing import Any
 
 from bootstrap import AppContext, build_backtester, create_app
-from config.loader import load_settings, section
+from config import force_utf8_stdio
+from config.loader import SettingsError, load_settings, section
 from notifiers.base_notifier import BaseNotifier
 from signals.signal_model import Signal, SignalStatus
 from storage.signal_log import SignalLog
@@ -122,8 +123,20 @@ def configure_logging(settings: dict[str, Any], cli_level: str | None) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    force_utf8_stdio()
+
     args = parse_args(argv)
-    settings = apply_cli_overrides(load_settings(args.config), args)
+    try:
+        # --mock/--dry-run صریحاً داده ساختگی می‌خواهند، پس نخواندن
+        # فایل تنظیمات آن‌ها را غافلگیر نمی‌کند.
+        wants_mock = bool(getattr(args, "mock", False) or args.dry_run)
+        settings = apply_cli_overrides(
+            load_settings(args.config, require_readable=not wants_mock), args
+        )
+    except SettingsError as exc:
+        # خطای تنظیمات تقصیر کاربر است، نه باگ؛ پیام خوانا بهتر از traceback است.
+        print(f"\nخطای تنظیمات:\n{exc}\n", file=sys.stderr)
+        return 2
     configure_logging(settings, args.log_level)
 
     if args.backtest:
