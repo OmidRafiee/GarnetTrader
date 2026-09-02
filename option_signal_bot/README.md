@@ -17,37 +17,34 @@
 
 ### ۰. آماده‌سازی محیط (یک بار)
 
-```bash
-cd option_signal_bot
+```powershell
+cd D:\Project\github\GarnetTrader\option_signal_bot
 
-py -m venv .venv                                  # ویندوز
-.venv\Scripts\python.exe -m pip install -r requirements.txt
+py -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-از این به بعد در همه‌ی دستورها **`.venv\Scripts\python.exe`** را به‌جای `python`
-بگذارید (یا اول `.venv\Scripts\activate` را اجرا کنید تا `python` خودش درست شود).
+⚠️ **دو نکته که بیشترین خطا را می‌سازند:**
 
-⚠️ **روی ویندوز `PYTHONUTF8=1` را لازم دارید.** خروجی این پروژه فارسی است و کنسول
-پیش‌فرض ویندوز `cp1252` است؛ بدون این متغیر، دستورها با `UnicodeEncodeError` می‌افتند:
+| نکته | چرا |
+|---|---|
+| **در پوشه‌ی `option_signal_bot` باشید**، نه ریشه‌ی ریپو | `main.py` و `.venv` اینجا هستند. از ریشه، خطای `could not be loaded` می‌گیرید. |
+| در PowerShell **`.\`** را جا نیندازید | `.venv\...` را PowerShell اسم ماژول می‌فهمد و `Import-Module` پیشنهاد می‌دهد. `.\.venv\...` درست است. |
 
-```bash
-set PYTHONUTF8=1        # cmd — یک بار در هر پنجره
-$env:PYTHONUTF8=1       # PowerShell
+راه ساده‌تر — یک بار محیط را فعال کنید و بعد `python` خالی کافی است:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+python main.py --dry-run
 ```
 
-برای همیشگی‌کردنش: `setx PYTHONUTF8 1` (پنجره‌ی جدید لازم دارد).
-
-> **PyYAML اجباری است، نه اختیاری.** اگر نصب نباشد، `settings.yaml` شما **بی‌صدا
-> نادیده گرفته می‌شود** و ربات به پیش‌فرض `provider: mock` برمی‌گردد — یعنی سیگنال
-> با قیمت‌های ساختگی تولید می‌کند که شکلش عیناً شبیه سیگنال واقعی است. تنها نشانه‌اش
-> یک خط `PyYAML نصب نیست` در ابتدای لاگ و برچسب `منبع داده: mock+mock` روی سیگنال است.
-> همیشه آن برچسب را چک کنید.
+اگر PowerShell اجازه‌ی اسکریپت نداد:
+`Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`
 
 ### ۱. اجرای اولین سیگنال تستی (بدون تنظیمات)
 
-```bash
-set PYTHONUTF8=1
-.venv\Scripts\python.exe main.py --dry-run
+```powershell
+.\.venv\Scripts\python.exe main.py --dry-run
 ```
 
 در حالت `--dry-run`:
@@ -83,7 +80,7 @@ set PYTHONUTF8=1
 ### ۲. نصب کامل وابستگی‌ها (برای داده واقعی)
 
 ```bash
-.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
 > اگر بخش ۰ را انجام داده‌اید، این مرحله تکمیل است.
@@ -97,7 +94,7 @@ cp config/settings.example.yaml config/settings.yaml
 فایل نمونه از پیش روی داده **واقعی** TSETMC تنظیم شده (`provider: tsetmc`).
 کافی است:
 - `market_data.symbols` را با نمادهایی که آپشن دارند پر کنید
-  (لیست را با `.venv\Scripts\python.exe scripts/fetch_tsetmc_sample.py` ببینید)
+  (لیست را با `.\.venv\Scripts\python.exe scripts/fetch_tsetmc_sample.py` ببینید)
 - `risk.*` را با اندازه حساب خودتان تنظیم کنید
 - برای اجرای کاملاً آفلاین، `provider` هر دو بخش را `mock` بگذارید
 
@@ -115,25 +112,31 @@ set TELEGRAM_CHAT_ID=-1001234567890
 ### ۴. اجرای عادی
 
 ```bash
-set PYTHONUTF8=1
-
-.venv\Scripts\python.exe main.py --once            # یک پاس رصد بازار
-.venv\Scripts\python.exe main.py                   # حلقه دائمی با فاصله poll_interval_seconds
-.venv\Scripts\python.exe main.py --json            # چاپ سیگنال‌ها به‌صورت JSON
-.venv\Scripts\python.exe main.py --symbols خودرو شستا وبملت
-.venv\Scripts\python.exe main.py --backtest        # گزارش کیفیت سیگنال روی داده تاریخی
-.venv\Scripts\python.exe main.py --mock            # اجبار به داده mock (بدون شبکه)
+.\.venv\Scripts\python.exe main.py --once            # یک پاس رصد بازار
+.\.venv\Scripts\python.exe main.py                   # حلقه دائمی با فاصله poll_interval_seconds
+.\.venv\Scripts\python.exe main.py --json            # چاپ سیگنال‌ها به‌صورت JSON
+.\.venv\Scripts\python.exe main.py --symbols خودرو شستا وبملت
+.\.venv\Scripts\python.exe main.py --backtest        # گزارش کیفیت سیگنال روی داده تاریخی
+.\.venv\Scripts\python.exe main.py --mock            # اجبار به داده mock (بدون شبکه)
 ```
 
 > بیرون ساعت بازار، `--once` فقط `بازار بسته است` می‌دهد و برمی‌گردد.
 > برای تست در بازار بسته، در `settings.yaml` مقدار `general.run_only_when_market_open`
 > را `false` بگذارید — داده از TSETMC واقعی می‌آید ولی مظنه‌ها آخرین وضعیت روز قبل‌اند.
 
+> **اگر خطای تنظیمات گرفتید:** وقتی `settings.yaml` وجود دارد ولی PyYAML نصب نیست،
+> ربات **متوقف می‌شود** و راه‌حل را چاپ می‌کند. این عمدی است: قبلاً در این حالت
+> بی‌صدا روی `provider: mock` می‌رفت و با قیمت **ساختگی** سیگنال می‌داد که از
+> سیگنال واقعی قابل تشخیص نبود. `--dry-run` و `--mock` معافند، چون صریحاً داده
+> mock می‌خواهند.
+>
+> در هر خروجی، برچسب **`منبع داده:`** را چک کنید — `tsetmc+tsetmc` یعنی داده واقعی،
+> `mock+mock` یعنی ساختگی.
+
 ### ۵. تست‌ها
 
 ```bash
-set PYTHONUTF8=1
-.venv\Scripts\python.exe -m pytest -q
+.\.venv\Scripts\python.exe -m pytest -q
 ```
 
 ### ۶. داده واقعی بازار (بدون لاگین و بدون توکن)
@@ -156,9 +159,8 @@ set PYTHONUTF8=1
 دیدن لیست نمادهایی که آپشن دارند و وضعیت بازار:
 
 ```bash
-set PYTHONUTF8=1
-.venv\Scripts\python.exe scripts/fetch_tsetmc_sample.py                 # گزارش
-.venv\Scripts\python.exe scripts/fetch_tsetmc_sample.py --save-fixture  # به‌روزرسانی نمونه تست
+.\.venv\Scripts\python.exe scripts/fetch_tsetmc_sample.py                 # گزارش
+.\.venv\Scripts\python.exe scripts/fetch_tsetmc_sample.py --save-fixture  # به‌روزرسانی نمونه تست
 ```
 
 **سه لایه داده** پشت همان اینترفیس، با `option_chain.provider` انتخاب می‌شوند:
@@ -191,15 +193,14 @@ TSETMC داده‌ی بازار را می‌دهد ولی سه چیز را نم�
 
 نصب یک‌باره:
 ```bash
-.venv\Scripts\python.exe -m pip install playwright
+.\.venv\Scripts\python.exe -m pip install playwright
 ```
 اگر Chrome سیستم را دارید، به `playwright install` نیازی نیست؛ اسکریپت با
 `channel="chrome"` همان Chrome خودتان را می‌راند (بدون دانلود ~۴۰۰ مگابایتی).
 
 اجرا:
 ```bash
-set PYTHONUTF8=1
-.venv\Scripts\python.exe scripts/emofid_login.py --url https://easytrader.ir --minutes 15
+.\.venv\Scripts\python.exe scripts/emofid_login.py --url https://easytrader.ir --minutes 15
 ```
 
 چه اتفاقی می‌افتد:
@@ -221,8 +222,7 @@ set PYTHONUTF8=1
 5. سپس:
 
 ```bash
-set PYTHONUTF8=1
-.venv\Scripts\python.exe scripts/har_to_inventory.py مسیر\فایل.har
+.\.venv\Scripts\python.exe scripts/har_to_inventory.py مسیر\فایل.har
 ```
 
 خروجی هر دو مسیر یکی است: `var/emofid/api_inventory.md` و `.json`.
