@@ -9,17 +9,45 @@
 > که پیاده‌سازی واقعی‌اش را بعداً خود کاربر می‌دهد.
 
 **وضعیت فعلی:** مایل‌استون ۱ کامل + **داده واقعی بازار وصل شد** (TSETMC، بدون لاگین).
-۱۴۱ تست پاس؛ `python main.py --dry-run` هم بدون هیچ نصبی کار می‌کند.
+**۱۵۵ تست پاس** (تأییدشده). برای اجرا اول بخش «آماده‌سازی محیط» را ببینید.
 
 ---
 
 ## Getting Started
 
-### ۱. اجرای اولین سیگنال تستی (بدون هیچ نصب و تنظیمی)
+### ۰. آماده‌سازی محیط (یک بار)
 
 ```bash
 cd option_signal_bot
-python main.py --dry-run
+
+py -m venv .venv                                  # ویندوز
+.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+از این به بعد در همه‌ی دستورها **`.venv\Scripts\python.exe`** را به‌جای `python`
+بگذارید (یا اول `.venv\Scripts\activate` را اجرا کنید تا `python` خودش درست شود).
+
+⚠️ **روی ویندوز `PYTHONUTF8=1` را لازم دارید.** خروجی این پروژه فارسی است و کنسول
+پیش‌فرض ویندوز `cp1252` است؛ بدون این متغیر، دستورها با `UnicodeEncodeError` می‌افتند:
+
+```bash
+set PYTHONUTF8=1        # cmd — یک بار در هر پنجره
+$env:PYTHONUTF8=1       # PowerShell
+```
+
+برای همیشگی‌کردنش: `setx PYTHONUTF8 1` (پنجره‌ی جدید لازم دارد).
+
+> **PyYAML اجباری است، نه اختیاری.** اگر نصب نباشد، `settings.yaml` شما **بی‌صدا
+> نادیده گرفته می‌شود** و ربات به پیش‌فرض `provider: mock` برمی‌گردد — یعنی سیگنال
+> با قیمت‌های ساختگی تولید می‌کند که شکلش عیناً شبیه سیگنال واقعی است. تنها نشانه‌اش
+> یک خط `PyYAML نصب نیست` در ابتدای لاگ و برچسب `منبع داده: mock+mock` روی سیگنال است.
+> همیشه آن برچسب را چک کنید.
+
+### ۱. اجرای اولین سیگنال تستی (بدون تنظیمات)
+
+```bash
+set PYTHONUTF8=1
+.venv\Scripts\python.exe main.py --dry-run
 ```
 
 در حالت `--dry-run`:
@@ -55,10 +83,10 @@ python main.py --dry-run
 ### ۲. نصب کامل وابستگی‌ها (برای داده واقعی)
 
 ```bash
-python -m venv .venv
-.venv\Scripts\activate        # ویندوز
-pip install -r requirements.txt
+.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
+
+> اگر بخش ۰ را انجام داده‌اید، این مرحله تکمیل است.
 
 ### ۳. تنظیمات
 
@@ -69,7 +97,7 @@ cp config/settings.example.yaml config/settings.yaml
 فایل نمونه از پیش روی داده **واقعی** TSETMC تنظیم شده (`provider: tsetmc`).
 کافی است:
 - `market_data.symbols` را با نمادهایی که آپشن دارند پر کنید
-  (لیست را با `python scripts/fetch_tsetmc_sample.py` ببینید)
+  (لیست را با `.venv\Scripts\python.exe scripts/fetch_tsetmc_sample.py` ببینید)
 - `risk.*` را با اندازه حساب خودتان تنظیم کنید
 - برای اجرای کاملاً آفلاین، `provider` هر دو بخش را `mock` بگذارید
 
@@ -87,18 +115,25 @@ set TELEGRAM_CHAT_ID=-1001234567890
 ### ۴. اجرای عادی
 
 ```bash
-python main.py --once            # یک پاس رصد بازار
-python main.py                   # حلقه دائمی با فاصله poll_interval_seconds
-python main.py --json            # چاپ سیگنال‌ها به‌صورت JSON
-python main.py --symbols خودرو فولاد شپنا
-python main.py --backtest        # گزارش کیفیت سیگنال روی داده تاریخی
-python main.py --mock            # اجبار به داده mock (بدون شبکه)
+set PYTHONUTF8=1
+
+.venv\Scripts\python.exe main.py --once            # یک پاس رصد بازار
+.venv\Scripts\python.exe main.py                   # حلقه دائمی با فاصله poll_interval_seconds
+.venv\Scripts\python.exe main.py --json            # چاپ سیگنال‌ها به‌صورت JSON
+.venv\Scripts\python.exe main.py --symbols خودرو شستا وبملت
+.venv\Scripts\python.exe main.py --backtest        # گزارش کیفیت سیگنال روی داده تاریخی
+.venv\Scripts\python.exe main.py --mock            # اجبار به داده mock (بدون شبکه)
 ```
+
+> بیرون ساعت بازار، `--once` فقط `بازار بسته است` می‌دهد و برمی‌گردد.
+> برای تست در بازار بسته، در `settings.yaml` مقدار `general.run_only_when_market_open`
+> را `false` بگذارید — داده از TSETMC واقعی می‌آید ولی مظنه‌ها آخرین وضعیت روز قبل‌اند.
 
 ### ۵. تست‌ها
 
 ```bash
-pytest -q
+set PYTHONUTF8=1
+.venv\Scripts\python.exe -m pytest -q
 ```
 
 ### ۶. داده واقعی بازار (بدون لاگین و بدون توکن)
@@ -121,8 +156,9 @@ pytest -q
 دیدن لیست نمادهایی که آپشن دارند و وضعیت بازار:
 
 ```bash
-python scripts/fetch_tsetmc_sample.py                 # گزارش
-python scripts/fetch_tsetmc_sample.py --save-fixture  # به‌روزرسانی نمونه تست
+set PYTHONUTF8=1
+.venv\Scripts\python.exe scripts/fetch_tsetmc_sample.py                 # گزارش
+.venv\Scripts\python.exe scripts/fetch_tsetmc_sample.py --save-fixture  # به‌روزرسانی نمونه تست
 ```
 
 **سه لایه داده** پشت همان اینترفیس، با `option_chain.provider` انتخاب می‌شوند:
@@ -146,26 +182,60 @@ TSETMC داده‌ی بازار را می‌دهد ولی سه چیز را نم�
 **عمق مظنه**، و **push زیرثانیه**. برای آن‌ها به سشن احرازهویت‌شده‌ی کارگزاری نیاز است.
 گام اول، کشف سطح API است — با دو مسیر:
 
-**مسیر ۱ — مرورگر قابل‌مشاهده (نیاز به `pip install playwright`)**
+> ⏰ **حتماً در ساعت بازار اجرا کنید** (شنبه–چهارشنبه، ~۹:۰۰ تا ۱۲:۳۰).
+> در بازار بسته، دیده‌بان و عمق مظنه هیچ داده‌ای push نمی‌کنند و گزارش تقریباً خالی
+> درمی‌آید. تست‌شده: اجرای یک‌دقیقه‌ای بیرون ساعت بازار فقط ۲ endpoint داد که
+> هر دو آنالیتیکس بودند.
 
+**مسیر ۱ — مرورگر قابل‌مشاهده (توصیه‌شده)**
+
+نصب یک‌باره:
 ```bash
-python scripts/emofid_login.py --url https://easytrader.ir --minutes 15
+.venv\Scripts\python.exe -m pip install playwright
+```
+اگر Chrome سیستم را دارید، به `playwright install` نیازی نیست؛ اسکریپت با
+`channel="chrome"` همان Chrome خودتان را می‌راند (بدون دانلود ~۴۰۰ مگابایتی).
+
+اجرا:
+```bash
+set PYTHONUTF8=1
+.venv\Scripts\python.exe scripts/emofid_login.py --url https://easytrader.ir --minutes 15
 ```
 
-پنجره‌ی واقعی Chrome باز می‌شود، **خودتان** نام کاربری/رمز/OTP را وارد می‌کنید،
-و اسکریپت در تمام مدت ترافیک را رصد می‌کند. هیچ فرمی خودکار پر نمی‌شود و
-هیچ اعتبارنامه‌ای ذخیره نمی‌شود.
+چه اتفاقی می‌افتد:
+1. یک پنجره‌ی واقعی Chrome باز می‌شود و به `easytrader.ir` می‌رود
+2. **خودتان** نام کاربری، رمز و OTP را وارد می‌کنید — اسکریپت هیچ فرمی پر نمی‌کند
+3. بعد از لاگین، این صفحات را باز کنید (هرچه بیشتر، فهرست کامل‌تر):
+   **دیده‌بان بازار آپشن**، **سبد دارایی/پوزیشن**، **موجودی حساب**،
+   **عمق مظنه یک نماد آپشن**
+4. برای پایان زودتر از ۱۵ دقیقه: `Ctrl+C`
 
 **مسیر ۲ — بدون هیچ نصبی (HAR)**
 
-DevTools → Network → تیک «Preserve log» → لاگین و باز کردن صفحات →
-راست‌کلیک → «Save all as HAR with content»، بعد:
+اگر نمی‌خواهید playwright نصب کنید یا مرورگر را به اسکریپت بسپارید:
+
+1. Chrome → `F12` → تب **Network**
+2. تیک **«Preserve log»** را بزنید
+3. لاگین کنید و همان صفحات بالا را باز کنید
+4. راست‌کلیک روی لیست درخواست‌ها → **«Save all as HAR with content»**
+5. سپس:
 
 ```bash
-python scripts/har_to_inventory.py مسیر/فایل.har
+set PYTHONUTF8=1
+.venv\Scripts\python.exe scripts/har_to_inventory.py مسیر\فایل.har
 ```
 
 خروجی هر دو مسیر یکی است: `var/emofid/api_inventory.md` و `.json`.
+
+**بعد از اجرا، این‌ها را در گزارش نگاه کنید:**
+
+```bash
+type var\emofid\api_inventory.md
+```
+
+- هر endpoint مربوط به **پوزیشن / موجودی / سبد** → ورودی آداپتر `AccountDataSource`
+- **اتصال سوکت** (SignalR/WebSocket) → مسیر `RealtimeQuoteSource` برای push زیرثانیه
+- **هدرهای احراز هویت** (`authorization` یا `cookie`) → نحوه‌ی نگه‌داشتن سشن
 
 **تضمین حریم خصوصی — «شکل را ضبط کن، نه داده را»:** برای نوشتن آداپتر، نام فیلدها
 و نوعشان کافی است؛ مقدار موجودی و توکن هیچ‌وقت لازم نیست. پس:

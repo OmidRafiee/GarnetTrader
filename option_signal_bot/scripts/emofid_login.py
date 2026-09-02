@@ -101,6 +101,14 @@ def capture(url: str, minutes: float, session_file: Path, out_dir: Path) -> ApiI
                 except Exception:  # noqa: BLE001 - بدنه ممکن است در دسترس نباشد
                     response_schema = None
 
+            # بدنه‌ی درخواست ممکن است gzip یا باینری باشد؛ playwright هنگام
+            # decode آن UnicodeDecodeError می‌دهد. بدون این محافظ، آن استثنا
+            # کل هندلر را می‌کشد و آن endpoint هرگز ثبت نمی‌شود.
+            try:
+                request_schema = sketch_json_text(request.post_data)
+            except Exception:  # noqa: BLE001 - بدنه‌ی غیرمتنی یا از بین رفته
+                request_schema = None
+
             inventory.add_call(
                 ApiCall(
                     method=request.method,
@@ -110,7 +118,7 @@ def capture(url: str, minutes: float, session_file: Path, out_dir: Path) -> ApiI
                     content_type=content_type,
                     auth_headers=_auth_header_names(headers),
                     query_keys=_query_keys(request.url),
-                    request_schema=sketch_json_text(request.post_data),
+                    request_schema=request_schema,
                     response_schema=response_schema,
                 )
             )
