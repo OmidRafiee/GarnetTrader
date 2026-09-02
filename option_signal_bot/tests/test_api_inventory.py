@@ -132,6 +132,28 @@ def test_redact_url_masks_long_numbers_in_path():
     assert NUM_MASK in result
 
 
+
+def test_redact_url_masks_short_broker_account_codes():
+    """کد حساب ۵ رقمی هم باید ماسک شود، نه فقط کد ملی ۱۰ رقمی.
+
+    با آستانه‌ی قبلی (۶ رقم) یک کد حساب ۵ رقمی از فیلتر رد می‌شد و در
+    گزارش قابل اشتراک می‌نشست. کدهای حساب/مشتری کارگزاری‌های ایرانی
+    معمولاً ۵-۶ رقمی‌اند.
+    """
+    for account in ("1234", "12345", "123456"):
+        result = redact_url(f"https://api.example.com/accounts/{account}/positions")
+        assert account not in result, f"کد {account} ماسک نشد: {result}"
+        assert NUM_MASK in result
+
+
+def test_redact_url_keeps_short_structural_numbers():
+    """۱ تا ۳ رقم ساختار مفید است، نه شناسه؛ نباید ماسک شود."""
+    for path in ("/api/Instrument/GetInstrumentOptionMarketWatch/1",
+                 "/api/MarketData/GetMarketOverview/2",
+                 "/api/v2/orders"):
+        result = redact_url("https://api.example.com" + path)
+        assert NUM_MASK not in result, f"بی‌جهت ماسک شد: {result}"
+
 def test_endpoint_key_ignores_query():
     key_a = endpoint_key("get", "https://a.com/v1/x?page=1")
     key_b = endpoint_key("GET", "https://a.com/v1/x?page=2")
