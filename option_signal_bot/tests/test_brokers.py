@@ -320,3 +320,63 @@ def test_empty_isin_is_rejected_before_any_request():
     with pytest.raises(ValueError):
         client.get_underlying_limit("", date(2026, 9, 30))
     assert client.calls == [], "نباید درخواستی زده می‌شد"
+
+# ----------------------------------------------------------------------
+# احراز هویت کوکی‌محور — شکل واقعی فایل سشن ایزی‌تریدر
+# ----------------------------------------------------------------------
+def _session_with_cookies(tmp_path, cookies):
+    path = tmp_path / "session.json"
+    path.write_text(json.dumps({"cookies": cookies, "origins": []}), encoding="utf-8")
+    return path
+
+
+def test_session_with_only_cookies_is_accepted(tmp_path):
+    """فایل سشن واقعی ایزی‌تریدر توکن ندارد، فقط کوکی.
+
+    توکن Bearer با OIDC در لحظه ساخته می‌شود و ذخیره نمی‌شود. پس نبودِ
+    توکن نباید خطای «سشن نامعتبر» بدهد.
+    """
+    path = _session_with_cookies(tmp_path, [
+        {"name": ".AspNetCore.Identity.Application", "value": "COOKIEVAL",
+         "domain": "login.emofid.com"},
+    ])
+    client = EmofidAccountClient.from_session_file(path)
+    assert client.is_authenticated()
+
+
+def test_analytics_cookies_are_not_forwarded(tmp_path):
+    """کوکی آنالیتیکس نه لازم است و نه باید بی‌دلیل جابه‌جا شود."""
+    path = _session_with_cookies(tmp_path, [
+        {"name": "sess", "value": "KEEP", "domain": "login.emofid.com"},
+        {"name": "MUID", "value": "DROP", "domain": ".bing.com"},
+        {"name": "CLID", "value": "DROP", "domain": "www.clarity.ms"},
+    ])
+    client = EmofidAccountClient.from_session_file(path)
+    assert "KEEP" in client._cookie_header
+    assert "DROP" not in client._cookie_header
+
+
+def test_session_with_neither_token_nor_cookies_is_rejected(tmp_path):
+    path = _session_with_cookies(tmp_path, [])
+    with pytest.raises(BrokerAuthError, match="کوکی"):
+        EmofidAccountClient.from_session_file(path)
+
+
+def test_cookie_only_401_explains_the_missing_token():
+    """۴۰۱ با کوکی تنها باید بگوید توکن لازم است، نه «دوباره لاگین کن».
+
+    آزموده شد که /option/api/* هدر authorization می‌خواهد؛ پیام باید
+    کاربر را به همان‌جا ببرد وگرنه بی‌جهت دوباره لاگین می‌کند.
+    """
+    import urllib.error
+
+    class Cookie401(EmofidAccountClient):
+        def __init__(self):
+            super().__init__(token=None, cookie_header="sess=x", retries=1)
+            self._opener = self
+
+        def open(self, request, timeout=None):
+            raise urllib.error.HTTPError(request.full_url, 401, "Unauthorized", {}, None)
+
+    with pytest.raises(BrokerAuthError, match="authorization"):
+        Cookie401().get_positions()

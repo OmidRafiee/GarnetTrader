@@ -94,12 +94,14 @@ class EmofidAccountClient(AccountDataSource):
         timeout: int = 15,
         retries: int = 3,
         user_agent: str = DEFAULT_USER_AGENT,
+        cookie_header: str | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.retries = max(retries, 1)
         self.user_agent = user_agent
         self._token = self._normalize_token(token)
+        self._cookie_header = cookie_header
         self._opener = self._build_opener(self.base_url)
 
     @staticmethod
@@ -129,7 +131,25 @@ class EmofidAccountClient(AccountDataSource):
     ) -> EmofidAccountClient:
         """ساخت کلاینت از `var/emofid/session.json` که اسکریپت کشف می‌سازد.
 
-        ⚠️ آن فایل معادل دسترسی به حساب است؛ جایی نفرستیدش.
+        ⚠️ **این به‌تنهایی برای API آپشن کافی نیست.**
+
+        احراز هویت پلتفرم OpenID Connect است: توکن Bearer ثابت نیست و در
+        فایل سشن ذخیره نمی‌شود؛ وب‌اپ آن را در لحظه از
+        `POST https://login.emofid.com/connect/token` می‌گیرد.
+
+        آزمایش شد: تمام `/option/api/*` هدر `authorization` می‌خواهد و با
+        کوکی تنها **۴۰۱** می‌دهد. کوکی‌ها فقط برای بخش‌هایی از پلتفرم که
+        session-based هستند کار می‌کنند.
+
+        تا وقتی تبادل توکن پیاده نشده، برای استفاده‌ی واقعی توکن را
+        دستی بدهید:
+
+            client = EmofidAccountClient(token="eyJ...")
+
+        (از DevTools → Network → هر درخواست `api-mts` → هدر
+        `authorization`. عمر کوتاهی دارد.)
+
+        ⚠️ فایل سشن معادل دسترسی به حساب است؛ جایی نفرستیدش.
         """
         session_path = Path(path)
         if not session_path.exists():
@@ -143,20 +163,41 @@ class EmofidAccountClient(AccountDataSource):
         except (ValueError, OSError) as exc:
             raise BrokerAuthError(f"فایل سشن خوانده نشد: {exc}") from exc
 
+        # اگر توکنی صریحاً ذخیره شده بود، ترجیح با آن است
         token = cls._token_from_storage_state(data)
-        if not token:
+        cookies = cls._cookie_header(data)
+
+        if not token and not cookies:
             raise BrokerAuthError(
-                "توکنی در فایل سشن پیدا نشد. ممکن است سشن منقضی شده باشد؛ "
-                "دوباره لاگین کنید."
+                "نه توکنی و نه کوکی معتبری در فایل سشن پیدا نشد. "
+                "احتمالاً لاگین کامل نشده؛ دوباره تلاش کنید."
             )
-        return cls(token=token, **kwargs)
+        return cls(token=token, cookie_header=cookies, **kwargs)
+
+    @staticmethod
+    def _cookie_header(data: dict[str, Any]) -> str | None:
+        """کوکی‌های مربوط به کارگزاری را به یک هدر `Cookie` تبدیل می‌کند.
+
+        کوکی‌های آنالیتیکس (clarity، bing، google) عمداً کنار گذاشته
+        می‌شوند: نه لازم‌اند و نه باید بی‌دلیل جابه‌جا شوند.
+        """
+        keep_domains = ("easytrader.ir", "emofid.com")
+        pairs = []
+        for cookie in data.get("cookies") or []:
+            domain = str(cookie.get("domain", "")).lstrip(".")
+            if not any(domain.endswith(d) for d in keep_domains):
+                continue
+            name, value = cookie.get("name"), cookie.get("value")
+            if name and value:
+                pairs.append(f"{name}={value}")
+        return "; ".join(pairs) if pairs else None
 
     @staticmethod
     def _token_from_storage_state(data: dict[str, Any]) -> str | None:
-        """توکن را از ساختار `storage_state` پلی‌رایت بیرون می‌کشد.
+        """اگر توکنی در localStorage بود، بیرونش می‌کشد.
 
-        شکل دقیقش تضمین‌شده نیست، پس محافظه‌کارانه می‌گردیم و در صورت
-        پیدا نکردن `None` برمی‌گردانیم تا فراخوان پیام روشن بدهد.
+        در ایزی‌تریدر معمولاً نیست (توکن در لحظه گرفته می‌شود)، ولی اگر
+        روزی بود یا کارگزاری دیگری این‌طور کار کرد، مسیرش باز است.
         """
         for origin in data.get("origins") or []:
             for item in origin.get("localStorage") or []:
@@ -179,28 +220,30 @@ class EmofidAccountClient(AccountDataSource):
 
     # ------------------------------------------------------------------
     def is_authenticated(self) -> bool:
-        return bool(self._token)
+        return bool(self._token or self._cookie_header)
 
     def _get(self, path: str, params: dict[str, str] | None = None) -> Any:
-        """یک GET با تلاش مجدد. توکن هرگز در لاگ نمی‌آید."""
-        if not self._token:
+        """یک GET با تلاش مجدد. توکن و کوکی هرگز در لاگ نمی‌آیند."""
+        if not (self._token or self._cookie_header):
             raise BrokerAuthError(
-                "توکنی تنظیم نشده. یا `token=` بدهید یا از `from_session_file` "
-                "استفاده کنید."
+                "توکن یا کوکی تنظیم نشده. یا `token=` بدهید یا از "
+                "`from_session_file` استفاده کنید."
             )
 
         url = f"{self.base_url}{path}"
         if params:
             url = f"{url}?{urllib.parse.urlencode(params)}"
 
-        request = urllib.request.Request(
-            url,
-            headers={
-                "authorization": self._token,
-                "accept": "application/json",
-                "user-agent": self.user_agent,
-            },
-        )
+        headers = {
+            "accept": "application/json",
+            "user-agent": self.user_agent,
+        }
+        if self._token:
+            headers["authorization"] = self._token
+        if self._cookie_header:
+            headers["cookie"] = self._cookie_header
+
+        request = urllib.request.Request(url, headers=headers)
 
         last_error: Exception | None = None
         for attempt in range(1, self.retries + 1):
@@ -209,10 +252,20 @@ class EmofidAccountClient(AccountDataSource):
                     return json.loads(response.read().decode("utf-8"))
             except urllib.error.HTTPError as exc:
                 if exc.code in (401, 403):
-                    # تلاش مجدد بی‌فایده است؛ کاربر باید دوباره لاگین کند
+                    # تلاش مجدد بی‌فایده است؛ توکن تازه لازم است
+                    hint = ""
+                    if not self._token:
+                        # شایع‌ترین حالت: فقط کوکی داریم، ولی این API
+                        # هدر authorization می‌خواهد.
+                        hint = (
+                            "\nفقط کوکی در دست است، ولی /option/api/* هدر "
+                            "`authorization` می‌خواهد.\n"
+                            "توکن را از DevTools → Network → یک درخواست "
+                            "api-mts → هدر authorization بردارید و بدهید:\n"
+                            '    EmofidAccountClient(token="eyJ...")'
+                        )
                     raise BrokerAuthError(
-                        f"دسترسی رد شد ({exc.code}) روی {path}. "
-                        "سشن منقضی شده؛ دوباره لاگین کنید."
+                        f"دسترسی رد شد ({exc.code}) روی {path}.{hint}"
                     ) from exc
                 last_error = exc
                 if exc.code < 500:

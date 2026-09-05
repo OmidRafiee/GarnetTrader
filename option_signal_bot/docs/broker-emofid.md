@@ -10,10 +10,40 @@
 
 ## خلاصه
 
-- **۵۰۵ endpoint یکتا**، **۲ اتصال realtime**
+- **۵۷۹ endpoint یکتا**، **۲ اتصال realtime** (دو اجرای کشف)
 - هاست اصلی API: `api-mts.orbis.easytrader.ir`
-- احراز هویت: هدر `authorization` (توکن Bearer)
 - هاست لاگین: `login.emofid.com` (جدا از `easytrader.ir`)
+
+### احراز هویت — OpenID Connect
+
+پلتفرم OIDC استاندارد است:
+
+```
+GET  https://login.emofid.com/.well-known/openid-configuration
+POST https://login.emofid.com/connect/token     ← توکن اینجا ساخته می‌شود
+```
+
+**توکن Bearer در فایل سشن ذخیره نمی‌شود** — وب‌اپ آن را در لحظه می‌گیرد.
+کوکی `.AspNetCore.Identity.Application` (روی `login.emofid.com`) همان چیزی
+است که این تبادل را ممکن می‌کند.
+
+⚠️ **آزموده شد: کوکی به‌تنهایی کافی نیست.** تمام `/option/api/*` هدر
+`authorization` می‌خواهد و با کوکی تنها **۴۰۱** می‌دهد. توزیع در کشف:
+
+| احراز هویت | تعداد endpoint |
+|---|---|
+| فقط `cookie` | ۳۶۶ |
+| `authorization` | ۸۵ |
+| بدون هدر | ۱۲۸ |
+
+برای استفاده‌ی فعلی، توکن را دستی بدهید (از DevTools → Network → یک
+درخواست `api-mts` → هدر `authorization`؛ عمر کوتاهی دارد):
+
+```python
+client = EmofidAccountClient(token="eyJ...")
+```
+
+پیاده‌سازی تبادل خودکار توکن (`connect/token`) هنوز انجام نشده.
 
 ### دامنه‌ها
 
@@ -133,17 +163,55 @@ GET /assetmodule/api/performance
 
 ---
 
+## ثبت سفارش — کشف شد
+
+⚠️ **این پروژه هیچ‌کدام را صدا نمی‌زند.** فقط ثبت شده‌اند تا وقتی
+لازم شد، از روی داده‌ی واقعی پیاده شوند، نه از روی حدس.
+
+```
+POST   /option/api/Orders/Buy      ثبت خرید
+POST   /option/api/Orders/Sell     ثبت فروش
+PUT    /option/api/Orders/Sell     ویرایش
+DELETE /option/api/Orders          لغو
+```
+
+**payload خرید و فروش:**
+
+| فیلد | نوع |
+|---|---|
+| `symbolIsin` | string |
+| `symbolName` | string |
+| `price` | number |
+| `quantity` | number |
+| `validityType` | number |
+| `orderModelType` | number |
+| `totalValue` | number |
+| `orderFrom` | number |
+
+`PUT` همان‌ها به‌اضافه‌ی `id`, `side`, `parentId`.
+`DELETE` فقط `{orderId, orderFrom}`.
+
+پاسخ خطا: `{error: string, code: number, name: string}`.
+
+### گزارش سفارش‌ها
+
+```
+POST /easy/api/orderHistory/orderReport
+POST /option/api/Positions/history-read-model
+```
+
+هر دو صفحه‌بندی‌شده (`page`, `pageSize`, `sort`) و پاسخ‌شان `records[]`
+شامل `referenceId` است — همان جایی که idempotency می‌نشیند.
+
+---
+
 ## آنچه هنوز کشف نشده
 
 | نیاز | وضعیت |
 |---|---|
-| **ثبت سفارش** (`POST`) | ❌ در آن سشن سفارشی ثبت نشده، پس در گزارش نیست |
-| فرمت دقیق فریم‌های Lightstreamer | ❌ فقط تعداد فریم ثبت شده |
-| مکانیزم تازه‌سازی توکن | ❌ |
-
-برای پیدا کردن endpoint ثبت سفارش، `3-discover-api.bat` را **در ساعت
-بازار** اجرا کنید و **فرم ثبت سفارش را باز کنید** (لازم نیست ارسال کنید؛
-باز کردن فرم، درخواست‌های پیش‌نیاز مثل محاسبه وجه تضمین را می‌زند).
+| تبادل خودکار توکن (`connect/token`) | ❌ پارامترهایش ثبت نشده |
+| فرمت فریم‌های Lightstreamer | ❌ فقط تعداد فریم |
+| معنی عددی `validityType` و `orderModelType` | ❌ باید از UI استخراج شود |
 
 ---
 
