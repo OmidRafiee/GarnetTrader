@@ -53,6 +53,7 @@ $("#tabs").addEventListener("click", (e) => {
   if (btn.dataset.tab === "strategies") loadStrategies();
   if (btn.dataset.tab === "symbols") loadSymbols();
   if (btn.dataset.tab === "risk") loadRisk();
+  if (btn.dataset.tab === "account") loadAccount();
 });
 
 // ------------------------------------------------------------------ status
@@ -485,6 +486,72 @@ $("#btn-save-risk").addEventListener("click", async () => {
     note.textContent = err.message;
   }
 });
+
+// ------------------------------------------------------------------ account
+async function loadAccount() {
+  const box = $("#account");
+  box.innerHTML = '<p class="empty">در حال خواندن حساب…</p>';
+  try {
+    const d = await api("/api/account");
+    box.innerHTML = "";
+
+    if (!d.enabled) {
+      box.append(
+        el("div", "hint",
+          "اتصال به حساب کارگزاری خاموش است. برای روشن کردن، در " +
+          "config/settings.yaml مقدار broker.enabled را true بگذارید و " +
+          "با 3-discover-api.bat یک بار لاگین کنید.")
+      );
+      return;
+    }
+    if (d.reason) {
+      box.append(el("div", "error", d.reason));
+      return;
+    }
+    if (!d.positions.length) {
+      box.append(el("p", "empty", "پوزیشن باز آپشنی ندارید."));
+      return;
+    }
+
+    d.positions.forEach((p) => {
+      const card = el("div", "sig " + (p.is_long ? "call" : "put"));
+      const head = el("div", "sig-head");
+      head.append(el("span", "sig-badge " + (p.is_long ? "badge-call" : "badge-put"),
+        p.is_long ? "خرید" : "فروش"));
+      head.append(el("span", "sig-sym", p.symbol_name || p.symbol_isin));
+      if (p.cash_settlement_date) {
+        head.append(el("span", "sig-time", "تسویه نقدی: " + p.cash_settlement_date));
+      }
+      card.append(head);
+
+      const grid = el("div", "sig-grid");
+      const cell = (k, v, cls) => {
+        const dv = el("div");
+        dv.append(el("span", "k", k));
+        dv.append(el("span", "v " + (cls || ""), v));
+        return dv;
+      };
+      grid.append(cell("تعداد", fmt(p.quantity) + " قرارداد"));
+      grid.append(cell("قیمت اعمال", fmt(p.strike_price)));
+      grid.append(cell("میانگین خرید", fmt(p.buy_average_price)));
+      grid.append(cell("میانگین فروش", fmt(p.sell_average_price)));
+      grid.append(cell("وجه تضمین", fmt(p.total_margin)));
+      if (p.open_buy_quantity) grid.append(cell("سفارش خرید باز", fmt(p.open_buy_quantity)));
+      if (p.open_sell_quantity) grid.append(cell("سفارش فروش باز", fmt(p.open_sell_quantity)));
+      if (p.closed_pnl) {
+        grid.append(cell("سود/زیان بسته‌شده", fmt(p.closed_pnl),
+          p.closed_pnl >= 0 ? "v-gain" : "v-loss"));
+      }
+      card.append(grid);
+      box.append(card);
+    });
+  } catch (err) {
+    box.innerHTML = "";
+    box.append(el("div", "error", "خطا: " + err.message));
+  }
+}
+
+$("#btn-refresh-account").addEventListener("click", loadAccount);
 
 // ------------------------------------------------------------------ boot
 loadStatus();

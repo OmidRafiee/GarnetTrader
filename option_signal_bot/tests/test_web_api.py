@@ -173,6 +173,32 @@ def test_empty_risk_patch_is_rejected(client):
 
 
 # ----------------------------------------------------------------------
+# حساب کارگزاری
+# ----------------------------------------------------------------------
+def test_account_is_disabled_by_default(client):
+    """اتصال به حساب باید صریحاً روشن شود، نه اینکه پیش‌فرض باشد."""
+    body = client.get("/api/account").json()
+    assert body["enabled"] is False
+    assert body["positions"] == []
+    assert "broker.enabled" in body["reason"]
+
+
+def test_account_reports_broker_failure_without_crashing(client, monkeypatch):
+    """سشن منقضی نباید داشبورد را بخواباند؛ پیام روشن باید بدهد."""
+    import yaml
+
+    path = client.settings_path
+    data = yaml.safe_load(open(path, encoding="utf-8"))
+    data["broker"] = {"enabled": True, "session_file": "var/does-not-exist.json"}
+    path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+
+    body = client.get("/api/account").json()
+    assert body["enabled"] is True
+    assert body["reason"]  # پیام خطا هست
+    assert body["positions"] == []
+
+
+# ----------------------------------------------------------------------
 # ایمنی
 # ----------------------------------------------------------------------
 def test_web_layer_cannot_reach_execution():

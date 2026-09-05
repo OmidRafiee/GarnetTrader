@@ -55,6 +55,15 @@ def default_settings() -> dict[str, Any]:
             "sqlite_path": "var/signals.db",
             "jsonl_path": "var/signals.jsonl",
         },
+        # اتصال به حساب کارگزاری: پیش‌فرض خاموش. حتی روشن هم فقط می‌خواند.
+        "broker": {
+            "enabled": False,
+            "provider": "emofid",
+            "session_file": "var/emofid/session.json",
+            "base_url": "https://api-mts.orbis.easytrader.ir",
+            "timeout": 15,
+            "retries": 3,
+        },
         "backtest": {
             "history_days": 180,
             "horizon_days": 10,

@@ -1,0 +1,322 @@
+"""تست‌های لایه آداپتر کارگزاری.
+
+تمرکز روی همان چیزی است که این لایه را خطرناک می‌کند: پاسخ کارگزاری
+**مستند نیست** و هر آپدیت وب‌اپ می‌تواند شکلش را عوض کند. پس تست‌ها
+بیشتر از «مسیر خوش‌بینانه»، روی رفتار در برابر پاسخ خراب تمرکز دارند.
+
+نمونه‌های JSON از شکل واقعی کشف‌شده ساخته شده‌اند
+(`docs/broker-emofid.md`)، نه از حدس.
+"""
+
+from __future__ import annotations
+
+import json
+from datetime import date
+from pathlib import Path
+
+import pytest
+
+from brokers import (
+    AccountDataSource,
+    BrokerAuthError,
+    BrokerError,
+    BrokerUnavailableError,
+    UnderlyingLimit,
+)
+from brokers.emofid import EmofidAccountClient
+
+# ----------------------------------------------------------------------
+# نمونه‌های پاسخ، با شکل واقعی کشف‌شده
+# ----------------------------------------------------------------------
+POSITION_ROW = {
+    "customerIsin": "IRT1XXXX0001",
+    "symbolIsin": "IRO9IKCO6K41",
+    "symbolName": "ضخود7136",
+    "side": 1,
+    "executedQuantity": 5,
+    "openSellQuantity": 0,
+    "openBuyQuantity": 2,
+    "contractRequiredMargin": 1_200_000,
+    "cashSettlementDate": "2026-09-30T00:00:00",
+    "physicalSettlementDate": "2026-10-02T00:00:00",
+    "cefo": False,
+    "totalMargin": 6_000_000,
+    "strikePrice": 750,
+    "baseIsin": "IRO1IKCO0008",
+    "createDateTime": "2026-09-01T10:00:00",
+    "modifyDate": "2026-09-02T11:00:00",
+    "id": "pos-1",
+    "strategyInvolveQuantity": 0,
+    "buyAveragePrice": 61,
+    "sellAveragePrice": 0,
+    "closedPositionProfitLoss": 0,
+}
+
+CONTRACT_PAYLOAD = {
+    "id": "c-1",
+    "contractIsin": "IRO9IKCO6K41",
+    "symbolIsin": "IRO9IKCO6K41",
+    "startDate": "2026-06-01T00:00:00",
+    "endDate": "2026-09-30T00:00:00",
+    "contractSize": 1000,
+    "baseIsin": "IRO1IKCO0008",
+    "initialMargin": 1_500_000,
+    "requiredMargin": 1_200_000,
+    "strikePrice": 750,
+    "maintenanceMargin": 900_000,
+    "openPositions": 12_000,
+    "maxCOP": 500,
+    "maxCAOP": 1000,
+    "cashSettlementDate": "2026-09-30T00:00:00",
+    "physicalSettlementDate": "2026-10-02T00:00:00",
+    "maxBrokerOP": 5000,
+    "maxMarketOP": 50_000,
+    "maxOrders": 100,
+    "cefo": False,
+}
+
+LIMIT_PAYLOAD = {
+    "baseIsin": "IRO1IKCO0008",
+    "maxOpenPosition": 1000,
+    "lowLimitOpenPosition": 0,
+    "sumOpenPositions": 400,
+    "isRequestAllowed": True,
+}
+
+
+class FakeClient(EmofidAccountClient):
+    """کلاینت با شبکه‌ی جعلی، تا تست به حساب واقعی نیاز نداشته باشد."""
+
+    def __init__(self, responses: dict[str, object], **kwargs):
+        super().__init__(token="test-token", **kwargs)
+        self.responses = responses
+        self.calls: list[str] = []
+
+    def _get(self, path, params=None):  # type: ignore[override]
+        self.calls.append(path)
+        if path not in self.responses:
+            raise AssertionError(f"مسیر پیش‌بینی‌نشده: {path}")
+        value = self.responses[path]
+        if isinstance(value, Exception):
+            raise value
+        return value
+
+
+# ----------------------------------------------------------------------
+# مسیر درست
+# ----------------------------------------------------------------------
+def test_positions_map_to_domain_model():
+    client = FakeClient({"/option/api/Positions": [POSITION_ROW]})
+    positions = client.get_positions()
+
+    assert len(positions) == 1
+    position = positions[0]
+    assert position.symbol_name == "ضخود7136"
+    assert position.quantity == 5
+    assert position.is_long is True
+    assert position.strike_price == 750
+    assert position.cash_settlement_date == date(2026, 9, 30)
+    assert position.is_open is True
+
+
+def test_short_position_is_not_long():
+    """`side` غیر از ۱ یعنی فروش — و فروش است که وجه تضمین می‌خواهد."""
+    row = {**POSITION_ROW, "side": 2}
+    client = FakeClient({"/option/api/Positions": [row]})
+    assert client.get_positions()[0].is_long is False
+
+
+def test_contract_spec_maps_all_fields():
+    client = FakeClient({"/option/api/Contracts/IRO9IKCO6K41/symbol": CONTRACT_PAYLOAD})
+    spec = client.get_contract_spec("IRO9IKCO6K41")
+
+    assert spec.contract_size == 1000
+    assert spec.strike_price == 750
+    assert spec.end_date == date(2026, 9, 30)
+    assert spec.initial_margin == 1_500_000
+    assert spec.max_customer_open_position == 500
+
+
+def test_underlying_limit_computes_remaining_capacity():
+    client = FakeClient(
+        {"/option/api/contracts/underlying-asset/IRO1IKCO0008": LIMIT_PAYLOAD}
+    )
+    limit = client.get_underlying_limit("IRO1IKCO0008", date(2026, 9, 30))
+
+    assert limit.remaining_capacity == 600
+    assert limit.is_request_allowed is True
+
+
+def test_remaining_capacity_never_negative():
+    """اگر مجموع از سقف رد شده باشد، ظرفیت صفر است نه منفی.
+
+    عدد منفی در محاسبه‌ی تعداد قرارداد، بی‌صدا به سفارش معکوس تبدیل می‌شود.
+    """
+    limit = UnderlyingLimit(
+        base_isin="X", max_open_position=100, sum_open_positions=150
+    )
+    assert limit.remaining_capacity == 0
+
+
+# ----------------------------------------------------------------------
+# پاسخ خراب — مهم‌ترین بخش
+# ----------------------------------------------------------------------
+def test_missing_required_field_raises_loudly():
+    """نبود فیلد ضروری یعنی شکل API عوض شده؛ باید بلند خطا بدهد.
+
+    برگرداندن صفر بدترین کار است: `strike=0` بی‌صدا هر محاسبه‌ای را
+    خراب می‌کند بدون اینکه چیزی خراب به نظر برسد.
+    """
+    row = {k: v for k, v in POSITION_ROW.items() if k != "strikePrice"}
+    client = FakeClient({"/option/api/Positions": [row]})
+
+    with pytest.raises(BrokerError, match="strikePrice"):
+        client.get_positions()
+
+
+def test_zero_contract_size_is_rejected():
+    """اندازه قرارداد صفر یعنی خطای ۱۰۰۰ برابری در ارزش موقعیت."""
+    payload = {**CONTRACT_PAYLOAD, "contractSize": 0}
+    client = FakeClient({"/option/api/Contracts/X/symbol": payload})
+
+    with pytest.raises(BrokerError, match="اندازه قرارداد"):
+        client.get_contract_spec("X")
+
+
+def test_wrong_shape_is_rejected():
+    """اگر آرایه انتظار داریم و شیء آمد، یعنی API عوض شده."""
+    client = FakeClient({"/option/api/Positions": {"unexpected": "shape"}})
+    with pytest.raises(BrokerError, match="آرایه"):
+        client.get_positions()
+
+
+def test_unparseable_date_does_not_crash_the_whole_read():
+    """تاریخ خراب نباید کل خواندن پوزیشن‌ها را بخواباند.
+
+    برخلاف عدد، تاریخِ نبوده تصمیم‌ساز نیست؛ `None` قابل قبول است.
+    """
+    row = {**POSITION_ROW, "cashSettlementDate": "not-a-date"}
+    client = FakeClient({"/option/api/Positions": [row]})
+
+    position = client.get_positions()[0]
+    assert position.cash_settlement_date is None
+    assert position.quantity == 5  # بقیه‌ی فیلدها سالم مانده‌اند
+
+
+# ----------------------------------------------------------------------
+# احراز هویت
+# ----------------------------------------------------------------------
+def test_client_without_token_is_not_authenticated():
+    assert EmofidAccountClient(token=None).is_authenticated() is False
+
+
+def test_request_without_token_raises_auth_error():
+    client = EmofidAccountClient(token=None)
+    with pytest.raises(BrokerAuthError, match="توکن"):
+        client.get_positions()
+
+
+def test_bearer_prefix_is_added_once():
+    assert EmofidAccountClient(token="abc")._token == "Bearer abc"
+    assert EmofidAccountClient(token="Bearer abc")._token == "Bearer abc"
+    assert EmofidAccountClient(token="bearer abc")._token == "bearer abc"
+
+
+def test_missing_session_file_gives_actionable_error(tmp_path):
+    with pytest.raises(BrokerAuthError, match="3-discover-api"):
+        EmofidAccountClient.from_session_file(tmp_path / "nope.json")
+
+
+def test_session_file_without_token_is_rejected(tmp_path):
+    path = tmp_path / "session.json"
+    path.write_text(json.dumps({"origins": []}), encoding="utf-8")
+    with pytest.raises(BrokerAuthError, match="توکن"):
+        EmofidAccountClient.from_session_file(path)
+
+
+def test_token_is_extracted_from_session_file(tmp_path):
+    path = tmp_path / "session.json"
+    path.write_text(
+        json.dumps(
+            {
+                "origins": [
+                    {
+                        "origin": "https://easytrader.ir",
+                        "localStorage": [
+                            {"name": "theme", "value": "dark"},
+                            {
+                                "name": "auth_token",
+                                "value": json.dumps({"access_token": "SECRET123"}),
+                            },
+                        ],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    client = EmofidAccountClient.from_session_file(path)
+    assert client.is_authenticated()
+    assert client._token == "Bearer SECRET123"
+
+
+# ----------------------------------------------------------------------
+# ایمنی
+# ----------------------------------------------------------------------
+def test_adapter_implements_the_contract():
+    """آداپتر باید همان قراردادی را پیاده کند که هسته می‌شناسد."""
+    assert issubclass(EmofidAccountClient, AccountDataSource)
+
+
+def test_broker_layer_has_no_write_operations():
+    """این لایه فقط خواندن است.
+
+    اگر روزی ثبت سفارش اضافه شد، باید در یک قرارداد **جداگانه** باشد تا
+    «خواندن حساب» ناخواسته اجازه‌ی نوشتن نگیرد.
+    """
+    forbidden = ("def submit_order", "def place_order", "def cancel_order", "def modify_order")
+    for module in ("brokers/base.py", "brokers/emofid.py"):
+        source = Path(module).read_text(encoding="utf-8")
+        for name in forbidden:
+            assert name not in source, f"{module} نباید {name} داشته باشد"
+
+
+def test_broker_layer_never_imports_execution():
+    for module in ("brokers/base.py", "brokers/emofid.py", "brokers/__init__.py"):
+        source = Path(module).read_text(encoding="utf-8")
+        assert "import execution" not in source
+        assert "from execution" not in source
+
+
+def test_only_get_requests_are_issued():
+    """هیچ متد HTTP نوشتنی در آداپتر نباشد."""
+    source = Path("brokers/emofid.py").read_text(encoding="utf-8")
+    for verb in ('"POST"', '"PUT"', '"DELETE"', '"PATCH"', "method=\"POST\""):
+        assert verb not in source, f"آداپتر نباید {verb} بزند"
+
+
+# ----------------------------------------------------------------------
+# خطاهای شبکه
+# ----------------------------------------------------------------------
+def test_transient_failure_surfaces_as_unavailable():
+    client = FakeClient(
+        {"/option/api/Positions": BrokerUnavailableError("شبکه قطع است")}
+    )
+    with pytest.raises(BrokerUnavailableError):
+        client.get_positions()
+
+
+def test_auth_error_is_distinct_from_unavailable():
+    """تفکیک مهم است: یکی با تلاش مجدد درست می‌شود، دیگری نه."""
+    assert issubclass(BrokerAuthError, BrokerError)
+    assert issubclass(BrokerUnavailableError, BrokerError)
+    assert not issubclass(BrokerAuthError, BrokerUnavailableError)
+
+
+def test_empty_isin_is_rejected_before_any_request():
+    client = FakeClient({})
+    with pytest.raises(ValueError):
+        client.get_contract_spec("")
+    with pytest.raises(ValueError):
+        client.get_underlying_limit("", date(2026, 9, 30))
+    assert client.calls == [], "نباید درخواستی زده می‌شد"

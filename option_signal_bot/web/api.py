@@ -310,6 +310,63 @@ def update_risk(update: RiskUpdate) -> dict[str, Any]:
     return {"ok": True, "applied": patch}
 
 
+@app.get("/api/account")
+def get_account() -> dict[str, Any]:
+    """پوزیشن‌های واقعی حساب کارگزاری — **فقط خواندن**.
+
+    پیش‌فرض خاموش است. اگر روشن نباشد یا سشن منقضی شده باشد، به‌جای
+    خطای خام، وضعیت روشن با راهنمای رفع برمی‌گردد تا داشبورد نشکند.
+    """
+    settings = _settings()
+    broker_cfg = section(settings, "broker")
+
+    if not broker_cfg.get("enabled"):
+        return {
+            "enabled": False,
+            "reason": "اتصال به حساب کارگزاری در تنظیمات خاموش است "
+            "(broker.enabled).",
+            "positions": [],
+        }
+
+    try:
+        from brokers.emofid import EmofidAccountClient
+
+        client = EmofidAccountClient.from_session_file(
+            resolve_path(broker_cfg.get("session_file", "var/emofid/session.json")),
+            base_url=broker_cfg.get("base_url", "https://api-mts.orbis.easytrader.ir"),
+            timeout=broker_cfg.get("timeout", 15),
+            retries=broker_cfg.get("retries", 3),
+        )
+        positions = client.get_positions()
+    except Exception as exc:  # noqa: BLE001 - پیام به UI می‌رود، داشبورد نمی‌خوابد
+        logger.warning("خواندن حساب کارگزاری ناموفق بود: %s", exc)
+        return {"enabled": True, "reason": str(exc), "positions": []}
+
+    return {
+        "enabled": True,
+        "reason": None,
+        "positions": [
+            {
+                "symbol_name": p.symbol_name,
+                "symbol_isin": p.symbol_isin,
+                "quantity": p.quantity,
+                "is_long": p.is_long,
+                "strike_price": p.strike_price,
+                "total_margin": p.total_margin,
+                "buy_average_price": p.buy_average_price,
+                "sell_average_price": p.sell_average_price,
+                "closed_pnl": p.closed_pnl,
+                "open_buy_quantity": p.open_buy_quantity,
+                "open_sell_quantity": p.open_sell_quantity,
+                "cash_settlement_date": (
+                    p.cash_settlement_date.isoformat() if p.cash_settlement_date else None
+                ),
+            }
+            for p in positions
+        ],
+    }
+
+
 @app.get("/api/status")
 def get_status() -> dict[str, Any]:
     """وضعیت کلی برای نوار بالای داشبورد."""

@@ -119,3 +119,17 @@ backtest:
 # فقط یک اینترفیس انتزاعی در execution/order_executor_interface.py هست.
 execution:
   enabled: false
+
+# --- اتصال به حساب کارگزاری (فقط خواندن) ---
+# غیرفعال است مگر اینکه صریحاً روشنش کنید. حتی وقتی روشن باشد، این پروژه
+# هیچ سفارشی ثبت نمی‌کند؛ فقط پوزیشن و مشخصات قرارداد را می‌خواند.
+#
+# توکن از فایل سشنی می‌آید که 3-discover-api.bat می‌سازد.
+# ⚠️ آن فایل معادل دسترسی به حساب شماست؛ جایی نفرستیدش.
+broker:
+  enabled: false
+  provider: emofid
+  session_file: var/emofid/session.json
+  base_url: https://api-mts.orbis.easytrader.ir
+  timeout: 15
+  retries: 3
