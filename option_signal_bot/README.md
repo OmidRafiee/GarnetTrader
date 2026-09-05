@@ -9,17 +9,120 @@
 > که پیاده‌سازی واقعی‌اش را بعداً خود کاربر می‌دهد.
 
 **وضعیت فعلی:** مایل‌استون ۱ کامل + **داده واقعی بازار وصل شد** (TSETMC، بدون لاگین).
-۱۰۶ تست پاس؛ `python main.py --dry-run` هم بدون هیچ نصبی کار می‌کند.
+**۱۷۴ تست پاس** (تأییدشده). برای اجرا اول بخش «آماده‌سازی محیط» را ببینید.
+
+---
+
+## داشبورد وب
+
+راه راحت‌تر برای دیدن سیگنال‌ها و تغییر تنظیمات، بدون دست‌زدن به yaml.
+دابل‌کلیک روی `8-dashboard.bat`، یا:
+
+```powershell
+.\.venv\Scripts\python.exe -m web
+```
+
+مرورگر خودکار روی `http://127.0.0.1:8787` باز می‌شود.
+
+| تب | چه کاری می‌کنید |
+|---|---|
+| **سیگنال‌ها** | سیگنال‌های ثبت‌شده با فیلتر استراتژی و نماد؛ دکمه‌ی اجرای پاس رصد بازار |
+| **استراتژی‌ها** | خاموش/روشن کردن هر استراتژی و تغییر پارامترهایش (پیش‌فرض هر پارامتر زیرش نوشته شده) |
+| **نمادها** | انتخاب نمادهای پایه از لیست زنده‌ی بازار — فقط نمادهایی که واقعاً آپشن دارند |
+| **ریسک** | دارایی حساب، درصد ریسک، سقف قرارداد، حد ضرر و سود |
+
+تغییرات در `config/settings.yaml` ذخیره می‌شود و **از پاس بعدی** اعمال می‌گردد.
+
+هر سیگنال برچسب **منبع داده** دارد: `tsetmc+tsetmc` یعنی داده واقعی،
+`mock+mock` یعنی ساختگی (با هشدار نارنجی). نوار بالای صفحه هم همین را نشان می‌دهد.
+
+⚠️ **داشبورد هیچ سفارشی ثبت نمی‌کند** و راهی به لایه‌ی `execution` ندارد؛ یک تست
+گارد AST که کل مخزن را می‌پاید این را تضمین می‌کند.
+
+🔒 فقط روی `127.0.0.1` گوش می‌دهد، یعنی از کامپیوترهای دیگر در دسترس نیست.
+داشبورد **احراز هویت ندارد** و تنظیمات را می‌نویسد، پس روی شبکه بازش نکنید.
+(`--host` وجود دارد ولی هشدار می‌دهد.)
+
+---
+
+## اجرای سریع با batch file (ساده‌ترین راه)
+
+روی هر فایل **دابل‌کلیک** کنید — نیازی به ترمینال، `cd`، یا به‌خاطر سپردن دستور نیست.
+اگر venv نباشد، اولین اجرا خودش می‌سازدش.
+
+| فایل | کار | لاگین لازم؟ |
+|---|---|---|
+| `1-signal-test.bat` | تست با داده mock، بدون شبکه | ❌ |
+| `2-signal-live.bat` | سیگنال روی داده واقعی TSETMC | ❌ |
+| `3-discover-api.bat` | **کشف API ایزی‌تریدر** — Chrome باز می‌کند | ✅ خودتان |
+| `4-har-to-api.bat` | تبدیل فایل HAR به فهرست API | ✅ خودتان |
+| `5-signal-live-force.bat` | داده واقعی، بدون بررسی ساعت بازار | ❌ |
+| `6-run-tests.bat` | اجرای تست‌ها | ❌ |
+| `7-market-symbols.bat` | نمادهای دارای آپشن در بازار | ❌ |
+| `8-dashboard.bat` | **داشبورد وب** روی `127.0.0.1:8787` | ❌ |
+
+`_common.bat` بوت‌استرپ مشترک است؛ مستقیم اجرا نکنید.
+
+⏰ **`3-discover-api.bat` را در ساعت بازار اجرا کنید** (شنبه–چهارشنبه، ۹:۰۰–۱۲:۳۰).
+بیرون ساعت بازار صفحات داده push نمی‌کنند و گزارش تقریباً خالی می‌شود.
+
+فقط `1` تا `8` دستور خارجی هستند؛ هیچ‌کدام سفارشی ثبت نمی‌کند.
 
 ---
 
 ## Getting Started
 
-### ۱. اجرای اولین سیگنال تستی (بدون هیچ نصب و تنظیمی)
+### ۰. آماده‌سازی محیط (یک بار)
 
-```bash
-cd option_signal_bot
+```powershell
+cd D:\Project\github\GarnetTrader\option_signal_bot
+
+py -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+
+copy config\settings.example.yaml config\settings.yaml
+```
+
+آخرین خط برای اجرای با **داده واقعی** لازم است. بدون فایل تنظیمات، ربات روی
+`provider: mock` (قیمت ساختگی) کار می‌کند. `--dry-run` به آن نیازی ندارد.
+
+⚠️ **دو نکته که بیشترین خطا را می‌سازند:**
+
+| نکته | چرا |
+|---|---|
+| **در پوشه‌ی `option_signal_bot` باشید**، نه ریشه‌ی ریپو | `main.py` و `.venv` اینجا هستند. از ریشه، خطای `could not be loaded` می‌گیرید. |
+| در PowerShell **`.\`** را جا نیندازید | `.venv\...` را PowerShell اسم ماژول می‌فهمد و `Import-Module` پیشنهاد می‌دهد. `.\.venv\...` درست است. |
+
+راه ساده‌تر — یک بار محیط را فعال کنید و بعد `python` خالی کافی است.
+
+⚠️ **این دو خط، دو دستور جداگانه‌اند.** اول این را بزنید و **Enter**:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+اگر درست کار کرد، پیش‌وند `(.venv)` به prompt اضافه می‌شود:
+
+```
+(.venv) PS D:\Project\github\GarnetTrader\option_signal_bot>
+```
+
+**بعد** دستور بعدی را بزنید:
+
+```powershell
 python main.py --dry-run
+```
+
+اگر هر دو را در **یک خط** بنویسید، PowerShell دومی را آرگومانِ `Activate.ps1`
+می‌فهمد و خطای `A positional parameter cannot be found` می‌دهد.
+
+اگر PowerShell اجازه‌ی اسکریپت نداد:
+`Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`
+
+### ۱. اجرای اولین سیگنال تستی (بدون تنظیمات)
+
+```powershell
+.\.venv\Scripts\python.exe main.py --dry-run
 ```
 
 در حالت `--dry-run`:
@@ -55,10 +158,10 @@ python main.py --dry-run
 ### ۲. نصب کامل وابستگی‌ها (برای داده واقعی)
 
 ```bash
-python -m venv .venv
-.venv\Scripts\activate        # ویندوز
-pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
+
+> اگر بخش ۰ را انجام داده‌اید، این مرحله تکمیل است.
 
 ### ۳. تنظیمات
 
@@ -69,7 +172,7 @@ cp config/settings.example.yaml config/settings.yaml
 فایل نمونه از پیش روی داده **واقعی** TSETMC تنظیم شده (`provider: tsetmc`).
 کافی است:
 - `market_data.symbols` را با نمادهایی که آپشن دارند پر کنید
-  (لیست را با `python scripts/fetch_tsetmc_sample.py` ببینید)
+  (لیست را با `.\.venv\Scripts\python.exe scripts/fetch_tsetmc_sample.py` ببینید)
 - `risk.*` را با اندازه حساب خودتان تنظیم کنید
 - برای اجرای کاملاً آفلاین، `provider` هر دو بخش را `mock` بگذارید
 
@@ -84,21 +187,47 @@ set TELEGRAM_CHAT_ID=-1001234567890
 و در `settings.yaml` مقدار `notifiers.telegram.enabled` را `true` کنید.
 `config/settings.yaml` در `.gitignore` است تا توکن به گیت نرود.
 
+⚠️ **`settings.yaml` را با `Set-Content` یا `Out-File` ویرایش نکنید.** این‌ها
+کامنت‌های فارسی فایل را خراب می‌کنند (double-encode + BOM) و بعدش ربات با یک
+traceback خام از PyYAML می‌افتد:
+`yaml.reader.ReaderError: unacceptable character #x0081`.
+
+برای ویرایش از VS Code یا Notepad++ استفاده کنید (با encoding **UTF-8 بدون BOM**).
+اگر فایل خراب شد، دوباره بسازیدش:
+
+```powershell
+Remove-Item config\settings.yaml
+copy config\settings.example.yaml config\settings.yaml
+```
+
 ### ۴. اجرای عادی
 
 ```bash
-python main.py --once            # یک پاس رصد بازار
-python main.py                   # حلقه دائمی با فاصله poll_interval_seconds
-python main.py --json            # چاپ سیگنال‌ها به‌صورت JSON
-python main.py --symbols خودرو فولاد شپنا
-python main.py --backtest        # گزارش کیفیت سیگنال روی داده تاریخی
-python main.py --mock            # اجبار به داده mock (بدون شبکه)
+.\.venv\Scripts\python.exe main.py --once            # یک پاس رصد بازار
+.\.venv\Scripts\python.exe main.py                   # حلقه دائمی با فاصله poll_interval_seconds
+.\.venv\Scripts\python.exe main.py --json            # چاپ سیگنال‌ها به‌صورت JSON
+.\.venv\Scripts\python.exe main.py --symbols خودرو شستا وبملت
+.\.venv\Scripts\python.exe main.py --backtest        # گزارش کیفیت سیگنال روی داده تاریخی
+.\.venv\Scripts\python.exe main.py --mock            # اجبار به داده mock (بدون شبکه)
 ```
+
+> بیرون ساعت بازار، `--once` فقط `بازار بسته است` می‌دهد و برمی‌گردد.
+> برای تست در بازار بسته، در `settings.yaml` مقدار `general.run_only_when_market_open`
+> را `false` بگذارید — داده از TSETMC واقعی می‌آید ولی مظنه‌ها آخرین وضعیت روز قبل‌اند.
+
+> **اگر خطای تنظیمات گرفتید:** وقتی `settings.yaml` وجود دارد ولی PyYAML نصب نیست،
+> ربات **متوقف می‌شود** و راه‌حل را چاپ می‌کند. این عمدی است: قبلاً در این حالت
+> بی‌صدا روی `provider: mock` می‌رفت و با قیمت **ساختگی** سیگنال می‌داد که از
+> سیگنال واقعی قابل تشخیص نبود. `--dry-run` و `--mock` معافند، چون صریحاً داده
+> mock می‌خواهند.
+>
+> در هر خروجی، برچسب **`منبع داده:`** را چک کنید — `tsetmc+tsetmc` یعنی داده واقعی،
+> `mock+mock` یعنی ساختگی.
 
 ### ۵. تست‌ها
 
 ```bash
-pytest -q
+.\.venv\Scripts\python.exe -m pytest -q
 ```
 
 ### ۶. داده واقعی بازار (بدون لاگین و بدون توکن)
@@ -121,8 +250,8 @@ pytest -q
 دیدن لیست نمادهایی که آپشن دارند و وضعیت بازار:
 
 ```bash
-python scripts/fetch_tsetmc_sample.py                 # گزارش
-python scripts/fetch_tsetmc_sample.py --save-fixture  # به‌روزرسانی نمونه تست
+.\.venv\Scripts\python.exe scripts/fetch_tsetmc_sample.py                 # گزارش
+.\.venv\Scripts\python.exe scripts/fetch_tsetmc_sample.py --save-fixture  # به‌روزرسانی نمونه تست
 ```
 
 **سه لایه داده** پشت همان اینترفیس، با `option_chain.provider` انتخاب می‌شوند:
@@ -136,6 +265,86 @@ python scripts/fetch_tsetmc_sample.py --save-fixture  # به‌روزرسانی 
 **گیت‌های کیفیت داده** (`option_chain.quality`) لازم‌اند، نه تشریفاتی: در یک اجرای
 واقعی روی خودرو، ۲۳ قرارداد از ۷۸ حذف شد (۱۱ اسپرد پهن، ۱۲ بدون موقعیت باز).
 هر حذف در لاگ شمرده می‌شود تا بی‌صدا نباشد.
+
+### ۷. کشف API پلتفرم کارگزاری (ایزی‌تریدر / emofid)
+
+آدرس درست پلتفرم **`easytrader.ir`** است (متعلق به مفید، و ارجاع‌دهنده به `emofid.com`).
+⚠️ `easytrader.com` یک صفحه‌ی **فروش دامنه**ی بی‌ربط است؛ هرگز اعتبارنامه‌تان را آن‌جا وارد نکنید.
+
+TSETMC داده‌ی بازار را می‌دهد ولی سه چیز را نمی‌دهد: **پوزیشن و موجودی حساب**،
+**عمق مظنه**، و **push زیرثانیه**. برای آن‌ها به سشن احرازهویت‌شده‌ی کارگزاری نیاز است.
+گام اول، کشف سطح API است — با دو مسیر:
+
+> ⏰ **حتماً در ساعت بازار اجرا کنید** (شنبه–چهارشنبه، ~۹:۰۰ تا ۱۲:۳۰).
+> در بازار بسته، دیده‌بان و عمق مظنه هیچ داده‌ای push نمی‌کنند و گزارش تقریباً خالی
+> درمی‌آید. تست‌شده: اجرای یک‌دقیقه‌ای بیرون ساعت بازار فقط ۲ endpoint داد که
+> هر دو آنالیتیکس بودند.
+
+**مسیر ۱ — مرورگر قابل‌مشاهده (توصیه‌شده)**
+
+نصب یک‌باره:
+```bash
+.\.venv\Scripts\python.exe -m pip install playwright
+```
+اگر Chrome سیستم را دارید، به `playwright install` نیازی نیست؛ اسکریپت با
+`channel="chrome"` همان Chrome خودتان را می‌راند (بدون دانلود ~۴۰۰ مگابایتی).
+
+اجرا:
+```bash
+.\.venv\Scripts\python.exe scripts/emofid_login.py --url https://easytrader.ir --minutes 15
+```
+
+چه اتفاقی می‌افتد:
+1. یک پنجره‌ی واقعی Chrome باز می‌شود و به `easytrader.ir` می‌رود
+2. **خودتان** نام کاربری، رمز و OTP را وارد می‌کنید — اسکریپت هیچ فرمی پر نمی‌کند
+3. بعد از لاگین، این صفحات را باز کنید (هرچه بیشتر، فهرست کامل‌تر):
+   **دیده‌بان بازار آپشن**، **سبد دارایی/پوزیشن**، **موجودی حساب**،
+   **عمق مظنه یک نماد آپشن**
+4. برای پایان زودتر از ۱۵ دقیقه: `Ctrl+C`
+
+**مسیر ۲ — بدون هیچ نصبی (HAR)**
+
+اگر نمی‌خواهید playwright نصب کنید یا مرورگر را به اسکریپت بسپارید:
+
+1. Chrome → `F12` → تب **Network**
+2. تیک **«Preserve log»** را بزنید
+3. لاگین کنید و همان صفحات بالا را باز کنید
+4. راست‌کلیک روی لیست درخواست‌ها → **«Save all as HAR with content»**
+5. سپس:
+
+```bash
+.\.venv\Scripts\python.exe scripts/har_to_inventory.py مسیر\فایل.har
+```
+
+خروجی هر دو مسیر یکی است: `var/emofid/api_inventory.md` و `.json`.
+
+**بعد از اجرا، این‌ها را در گزارش نگاه کنید:**
+
+```bash
+type var\emofid\api_inventory.md
+```
+
+- هر endpoint مربوط به **پوزیشن / موجودی / سبد** → ورودی آداپتر `AccountDataSource`
+- **اتصال سوکت** (SignalR/WebSocket) → مسیر `RealtimeQuoteSource` برای push زیرثانیه
+- **هدرهای احراز هویت** (`authorization` یا `cookie`) → نحوه‌ی نگه‌داشتن سشن
+
+**تضمین حریم خصوصی — «شکل را ضبط کن، نه داده را»:** برای نوشتن آداپتر، نام فیلدها
+و نوعشان کافی است؛ مقدار موجودی و توکن هیچ‌وقت لازم نیست. پس:
+
+| داده | چه چیزی ثبت می‌شود |
+|---|---|
+| بدنه‌ی پاسخ | فقط اسکلت نوع‌ها: `{"balance": "number"}` نه `{"balance": 987654321}` |
+| هدر احراز هویت | فقط **نوعش**: `Bearer <REDACTED>` |
+| شناسه در مسیر URL | `/accounts/<NUM>/positions` |
+| پارامتر حساس در query | `token=<REDACTED>` (ولی `type=option` می‌ماند چون مفید است) |
+| فریم SignalR | فقط نام متد (`OnBestLimitChanged`)، نه آرگومان‌ها |
+
+این تضمین **تست دارد**: `tests/test_api_inventory.py` یک HAR ساختگی با توکن و کد ملی و
+موجودی جعلی می‌سازد و بررسی می‌کند هیچ‌کدام در خروجی نباشند.
+
+⚠️ دو فایل حساس‌اند و زیر `var/` (در `.gitignore`) می‌مانند: `session.json`
+(معادل دسترسی به حساب) و فایل HAR خام. **گزارش خروجی** قابل اشتراک است، ولی
+قبلش یک مرور چشمی بکنید.
 
 ---
 
@@ -226,12 +435,24 @@ python scripts/fetch_tsetmc_sample.py --save-fixture  # به‌روزرسانی 
 - [ ] پیگیری نتیجه هر سیگنال صادرشده (`signal_outcome`) برای سنجش کیفیت واقعی در بازار زنده
 
 ### مایل‌استون ۴ — تجربه کاربری و عملیات
-- [ ] داشبورد وب (FastAPI + صفحه ساده) برای سیگنال‌های زنده و تاریخچه
+- [x] داشبورد وب (FastAPI + صفحه ساده) برای سیگنال‌های زنده و تاریخچه
+- [x] ویرایش استراتژی‌ها، نمادها و ریسک از داشبورد (بدون دست‌زدن به yaml)
 - [ ] دستورهای تلگرام: `/signals`, `/status`, `/mute`, تأیید دریافت سیگنال
 - [ ] گزارش روزانه/هفتگی خودکار از عملکرد سیگنال‌ها
 - [ ] هشدار سلامت سیستم (قطع دیتا، خطای مکرر استراتژی، سیگنال صفر در چند روز)
 - [ ] اجرای دائمی: سرویس ویندوز / systemd / Docker
 - [ ] CI (اجرای pytest + ruff روی هر push) و بسته‌بندی با `pyproject.toml`
+
+### مایل‌استون ۴.۵ — اتصال حساب کارگزاری (در جریان)
+- [x] اسکلت لاگین با مرورگر قابل‌مشاهده (کاربر خودش لاگین می‌کند، OTP دستی)
+- [x] ابزار کشف API با تضمین تست‌شده‌ی «شکل بدون داده»
+- [x] مسیر جایگزین HAR بدون نیاز به نصب
+- [ ] اجرای کشف روی سشن واقعی و ساخت `var/emofid/api_inventory.md`
+- [ ] اینترفیس `AccountDataSource` (پوزیشن، موجودی) + آداپتر emofid
+- [ ] وصل کردن `account_equity` به موجودی واقعی (جای عدد دستی در yaml)
+- [ ] مشروط کردن سیگنال Covered Call به مالکیت واقعی سهم پایه
+- [ ] اینترفیس `RealtimeQuoteSource` + آداپتر SignalR (روی پولینگ TSETMC)
+- [ ] بررسی وجود API رسمی مفید (اگر باشد، بر مهندسی معکوس اولویت دارد)
 
 ### مایل‌استون ۵ — اجرای سفارش (فقط با تصمیم صریح کاربر)
 - [ ] پیاده‌سازی واقعی `OrderExecutorInterface` برای کارگزاری هدف
@@ -345,8 +566,12 @@ option_signal_bot/
 │   └── signal_backtester.py    بک‌تست کیفیت سیگنال
 ├── storage/
 │   └── signal_log.py           SQLite + JSONL برای Audit
+├── discovery/
+│   └── api_inventory.py        کشف API: پاک‌سازی راز + اسکلت نوع‌ها
 ├── scripts/
-│   └── fetch_tsetmc_sample.py  ضبط نمونه واقعی TSETMC برای fixture
+│   ├── fetch_tsetmc_sample.py  ضبط نمونه واقعی TSETMC برای fixture
+│   ├── emofid_login.py         لاگین دستی در مرورگر قابل‌مشاهده + کشف API
+│   └── har_to_inventory.py     HAR → فهرست API (بدون نیاز به نصب)
 ├── tests/
 │   ├── fixtures/               پاسخ واقعی ضبط‌شده TSETMC
 │   ├── test_tsetmc_clients.py  نگاشت فیلدها، گیت کیفیت، کش

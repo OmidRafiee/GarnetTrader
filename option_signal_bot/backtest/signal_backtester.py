@@ -146,7 +146,9 @@ class SignalBacktester:
 
         for index in range(self.warmup_days, last_index, self.step_days):
             window = history[: index + 1]
-            context = self._context_at(symbol, window, self._shift_chain(chain, window[-1].date))
+            context = self._context_at(
+                symbol, window, self._chain_at(chain, window[-1].date, window[-1].close)
+            )
             future_close = history[index + self.horizon_days].close
 
             for strategy in self.strategies:
@@ -162,11 +164,16 @@ class SignalBacktester:
         return outcomes
 
     @staticmethod
-    def _shift_chain(chain: OptionChain, as_of: date) -> OptionChain:
-        """سررسیدها را نسبت به تاریخ پنجره جابه‌جا می‌کند.
+    def _chain_at(chain: OptionChain, as_of: date, spot: float) -> OptionChain:
+        """زنجیره را به تاریخ و قیمت پنجره منتقل می‌کند.
 
-        بدون این جابه‌جایی، «روزهای باقی‌مانده تا سررسید» در پنجره‌های قدیمی
-        بزرگ‌تر از حد مجاز استراتژی می‌شد و هیچ نمادی انتخاب نمی‌شد.
+        دو تنظیم لازم است:
+          - **سررسیدها** جابه‌جا شوند، وگرنه «روز باقی‌مانده» در پنجره‌های قدیمی
+            از حد مجاز استراتژی بزرگ‌تر می‌شد و هیچ نمادی انتخاب نمی‌شد.
+          - **قیمت پایه‌ی زنجیره** برابر قیمت همان پنجره شود، چون
+            `StrategyContext.spot` اول از زنجیره می‌خواند؛ اگر این‌جا قیمت امروز
+            بماند، استراتژی با مومنتوم گذشته ولی قیمت امروز تصمیم می‌گیرد.
+
         محدودیت شناخته‌شده: پرمیوم‌ها همان مقادیر امروز می‌مانند، پس بک‌تست فقط
         کیفیت **جهت‌دهی** سیگنال را می‌سنجد، نه سود واقعی آپشن.
         """
@@ -175,6 +182,7 @@ class SignalBacktester:
         return replace(
             chain,
             contracts=contracts,
+            spot_price=spot,
             as_of=datetime.combine(as_of, datetime.min.time()),
         )
 
