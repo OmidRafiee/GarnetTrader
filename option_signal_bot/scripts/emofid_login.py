@@ -146,7 +146,14 @@ def capture(url: str, minutes: float, session_file: Path, out_dir: Path) -> ApiI
         print("   • موجودی حساب")
         print("   • عمق مظنه یک نماد آپشن")
         print("=" * 68)
-        print(f"ضبط تا {minutes:.0f} دقیقه ادامه دارد. برای پایان زودتر، Ctrl+C.\n")
+        print(f"ضبط تا {minutes:.0f} دقیقه ادامه دارد.")
+        print()
+        print("⚠️ برای پایان زودتر، در همین ترمینال **Ctrl+C** بزنید —")
+        print("   نه بستن پنجره‌ی مرورگر. اگر پنجره را ببندید، گزارش")
+        print("   endpointها ذخیره می‌شود ولی **فایل سشن از دست می‌رود**")
+        print("   (Playwright برای خواندنش به مرورگر زنده نیاز دارد).")
+        print("=" * 68)
+        print()
 
         page.goto(url, wait_until="domcontentloaded")
 
@@ -158,17 +165,29 @@ def capture(url: str, minutes: float, session_file: Path, out_dir: Path) -> ApiI
                     break
         except KeyboardInterrupt:
             print("\nضبط با درخواست شما پایان یافت.")
+        except Exception as exc:  # noqa: BLE001 - بستن پنجره راه طبیعی پایان است
+            # بستن مرورگر `TargetClosedError` می‌دهد و **قبل از** بررسی
+            # `context.pages` بالا می‌آید. بدون این شاخه، بستن پنجره کل
+            # سشن و گزارش را از بین می‌برد — یعنی طبیعی‌ترین راه پایان
+            # دادن، همه‌ی کار کاربر را دور می‌ریخت.
+            print(f"\nمرورگر بسته شد ({type(exc).__name__})؛ آنچه ضبط شده نگه داشته می‌شود.")
 
         # ذخیره وضعیت سشن برای اجرای بعدی (حساس!)
+        # اگر مرورگر بسته شده باشد این هم شکست می‌خورد، ولی گزارش
+        # endpointها که در حافظه است باید به هر حال نوشته شود.
         try:
             context.storage_state(path=str(session_file))
             print(f"\nوضعیت سشن ذخیره شد: {session_file}")
             print("⚠️ این فایل معادل دسترسی به حساب شماست؛ آن را جایی نفرستید.")
         except Exception as exc:  # noqa: BLE001
-            print(f"ذخیره سشن ناموفق بود: {exc}")
+            print(f"\nذخیره سشن ناموفق بود: {exc}")
+            print("(احتمالاً مرورگر بسته شده. گزارش endpointها همچنان ذخیره می‌شود.)")
 
-        context.close()
-        browser.close()
+        for closer in (context.close, browser.close):
+            try:
+                closer()
+            except Exception:  # noqa: BLE001 - ممکن است از قبل بسته شده باشد
+                pass
 
     return inventory
 
