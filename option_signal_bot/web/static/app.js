@@ -69,13 +69,9 @@ async function loadStatus() {
     else if (s.market_open === false) { mk = "بازار بسته"; mkCls = "chip-warn"; }
     box.append(el("span", "chip " + mkCls, mk));
 
-    // منبع داده — مهم‌ترین چیزی که کاربر باید ببیند
+    // منبع داده — پروژه داده ساختگی ندارد، پس همیشه واقعی است
     const src = `${s.market_data_provider}+${s.option_chain_provider}`;
-    const isMock = src.includes("mock");
-    box.append(
-      el("span", "chip " + (isMock ? "chip-warn" : "chip-ok"),
-        (isMock ? "داده ساختگی: " : "داده واقعی: ") + src)
-    );
+    box.append(el("span", "chip chip-ok", "داده واقعی: " + src));
 
     box.append(el("span", "chip chip-muted", `${fmt(s.signal_count)} سیگنال ذخیره‌شده`));
   } catch (err) {
@@ -122,11 +118,7 @@ function signalCard(s) {
   if (s.reason) card.append(el("div", "sig-reason", s.reason));
 
   const src = s.metadata && s.metadata.data_source;
-  if (src) {
-    const isMock = String(src).includes("mock");
-    card.append(el("div", "sig-src" + (isMock ? " is-mock" : ""),
-      "منبع داده: " + src + (isMock ? "  ← ساختگی، برای تصمیم واقعی معتبر نیست" : "")));
-  }
+  if (src) card.append(el("div", "sig-src", "منبع داده: " + src));
   return card;
 }
 
@@ -181,16 +173,16 @@ async function loadSignals() {
   }
 }
 
-async function scan(mock) {
-  const btns = [$("#btn-scan"), $("#btn-scan-mock")];
-  const btn = mock ? btns[1] : btns[0];
+async function scan() {
+  const btns = [$("#btn-scan")];
+  const btn = btns[0];
   const label = btn.textContent;
   btns.forEach((b) => (b.disabled = true));
   btn.innerHTML = '<span class="spin"></span>در حال رصد بازار…';
   $("#scan-result").innerHTML = "";
 
   try {
-    const r = await api("/api/scan?mock=" + (mock ? "true" : "false"), { method: "POST" });
+    const r = await api("/api/scan", { method: "POST" });
     $("#scan-result").append(
       el("div", "ok-box",
         r.generated
@@ -206,8 +198,7 @@ async function scan(mock) {
   }
 }
 
-$("#btn-scan").addEventListener("click", () => scan(false));
-$("#btn-scan-mock").addEventListener("click", () => scan(true));
+$("#btn-scan").addEventListener("click", () => scan());
 $("#btn-refresh").addEventListener("click", () => { loadSignals(); loadStatus(); });
 $("#filter-strategy").addEventListener("change", renderSignals);
 $("#filter-underlying").addEventListener("change", renderSignals);

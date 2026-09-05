@@ -92,12 +92,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="یک پاس با داده mock، خروجی فقط کنسول، بدون تلگرام و بدون ذخیره‌سازی",
+        help="یک پاس با داده واقعی، خروجی فقط کنسول، بدون تلگرام و بدون ذخیره‌سازی",
     )
     parser.add_argument("--once", action="store_true", help="فقط یک پاس اجرا و خروج")
     parser.add_argument("--interval", type=int, default=None, help="فاصله پاس‌ها به ثانیه")
     parser.add_argument("--symbols", nargs="+", default=None, help="بازنویسی لیست نمادها")
-    parser.add_argument("--mock", action="store_true", help="اجبار به استفاده از داده mock")
     parser.add_argument("--json", action="store_true", help="چاپ سیگنال‌ها به‌صورت JSON")
     parser.add_argument("--backtest", action="store_true", help="اجرای بک‌تست کیفیت سیگنال")
     parser.add_argument("--log-level", default=None, help="DEBUG | INFO | WARNING | ERROR")
@@ -108,9 +107,6 @@ def apply_cli_overrides(settings: dict[str, Any], args: argparse.Namespace) -> d
     """اعمال فلگ‌های CLI روی تنظیمات (اولویت CLI بر فایل)."""
     if args.symbols:
         settings["market_data"]["symbols"] = args.symbols
-    if args.dry_run or args.mock:
-        settings["market_data"]["provider"] = "mock"
-        settings["option_chain"]["provider"] = "mock"
     return settings
 
 
@@ -127,12 +123,7 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parse_args(argv)
     try:
-        # --mock/--dry-run صریحاً داده ساختگی می‌خواهند، پس نخواندن
-        # فایل تنظیمات آن‌ها را غافلگیر نمی‌کند.
-        wants_mock = bool(getattr(args, "mock", False) or args.dry_run)
-        settings = apply_cli_overrides(
-            load_settings(args.config, require_readable=not wants_mock), args
-        )
+        settings = apply_cli_overrides(load_settings(args.config), args)
     except SettingsError as exc:
         # خطای تنظیمات تقصیر کاربر است، نه باگ؛ پیام خوانا بهتر از traceback است.
         print(f"\nخطای تنظیمات:\n{exc}\n", file=sys.stderr)
@@ -146,7 +137,10 @@ def main(argv: list[str] | None = None) -> int:
     app = create_app(settings, dry_run=args.dry_run, as_json=args.json)
     try:
         if args.dry_run:
-            print("حالت آزمایشی (dry-run): داده mock، خروجی کنسول، بدون ثبت سفارش.\n")
+            print(
+                "حالت آزمایشی (dry-run): داده واقعی، خروجی کنسول، "
+                "بدون ذخیره‌سازی و بدون تلگرام.\n"
+            )
             signals = run_cycle(app)
             print(f"\nتعداد سیگنال تولیدشده: {len(signals)}")
             return 0

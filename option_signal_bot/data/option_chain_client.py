@@ -1,7 +1,8 @@
 """اینترفیس زنجیره آپشن: استرایک‌ها، سررسیدها و پرمیوم لحظه‌ای.
 
-`MockOptionChainClient` زنجیره‌ای واقع‌نما (با اسکیو نوسان و اسپرد مظنه) می‌سازد
-تا استراتژی‌ها و بک‌تست بدون اتصال به TSETMC قابل اجرا باشند.
+تنها پیاده‌سازی‌ها روی داده‌ی **واقعی** کار می‌کنند:
+`TsetmcOptionChainClient` (زنده) و `FilePayloadSource` (پاسخ ضبط‌شده).
+زنجیره‌ی مصنوعی وجود ندارد.
 """
 
 from __future__ import annotations
@@ -108,98 +109,3 @@ class OptionChainClient(ABC):
         """یک نماد آپشن مشخص (برای رفرش پرمیوم قبل از صدور سیگنال)."""
 
 
-class MockOptionChainClient(OptionChainClient):
-    """زنجیره مصنوعی حول قیمت پایه، با پرمیوم برگرفته از Black-Scholes."""
-
-    source_name = "mock"
-
-    def __init__(
-        self,
-        market_data: MarketDataClient,
-        strikes_per_side: int = 4,
-        expiry_days: tuple[int, ...] = (21, 49, 90),
-        base_vol: float = 0.55,
-        risk_free_rate: float = 0.25,
-        spread_pct: float = 0.03,
-    ) -> None:
-        self.market_data = market_data
-        self.strikes_per_side = strikes_per_side
-        self.expiry_days = expiry_days
-        self.base_vol = base_vol
-        self.risk_free_rate = risk_free_rate
-        self.spread_pct = spread_pct
-
-    @staticmethod
-    def _strike_step(spot: float) -> float:
-        """گام استرایک را به مقدار گردِ متناسب با سطح قیمت انتخاب می‌کند."""
-        for threshold, step in ((1_000, 50), (5_000, 100), (20_000, 500)):
-            if spot < threshold:
-                return float(step)
-        return 1_000.0
-
-    def _implied_vol(self, strike: float, spot: float) -> float:
-        """اسکیو ساده: هر چه از ATM دورتر، نوسان ضمنی بالاتر."""
-        moneyness = abs(strike / spot - 1.0)
-        return self.base_vol * (1.0 + 0.6 * moneyness)
-
-    def get_chain(self, underlying: str) -> OptionChain:
-        quote = self.market_data.get_quote(underlying)
-        spot = quote.reference_price
-        step = self._strike_step(spot)
-        atm = round(spot / step) * step
-        today = date.today()
-
-        contracts: list[OptionContract] = []
-        for expiry_index, days in enumerate(self.expiry_days):
-            expiry = today + timedelta(days=days)
-            tte = years_to_expiry(days)
-            for offset in range(-self.strikes_per_side, self.strikes_per_side + 1):
-                strike = atm + offset * step
-                if strike <= 0:
-                    continue
-                for option_type in ("call", "put"):
-                    sigma = self._implied_vol(strike, spot)
-                    fair = bs_price(
-                        spot, strike, tte, self.risk_free_rate, sigma, option_type
-                    )
-                    fair = max(fair, 1.0)
-                    half_spread = fair * self.spread_pct / 2.0
-                    contracts.append(
-                        OptionContract(
-                            symbol=self._mock_symbol(
-                                underlying, option_type, expiry_index, offset
-                            ),
-                            underlying=underlying,
-                            option_type=option_type,
-                            strike=float(strike),
-                            expiry=expiry,
-                            bid=round(fair - half_spread, 1),
-                            ask=round(fair + half_spread, 1),
-                            last_price=round(fair, 1),
-                            # نمادهای نزدیک ATM نقدشوندگی بیشتری دارند
-                            open_interest=max(500 - abs(offset) * 90, 20),
-                            volume=max(300 - abs(offset) * 60, 5),
-                        )
-                    )
-        return OptionChain(
-            underlying=underlying,
-            spot_price=spot,
-            as_of=quote.timestamp,
-            contracts=tuple(contracts),
-        )
-
-    @staticmethod
-    def _mock_symbol(
-        underlying: str, option_type: str, expiry_index: int, offset: int
-    ) -> str:
-        prefix = "ض" if option_type == "call" else "ط"
-        return f"{prefix}{underlying[:3]}-{expiry_index}{offset:+d}"
-
-    def get_contract(self, option_symbol: str) -> OptionContract | None:
-        # در حالت mock نمی‌دانیم نماد به کدام پایه تعلق دارد، پس همه پایه‌ها را می‌گردیم.
-        base_prices = getattr(self.market_data, "base_prices", {})
-        for underlying in base_prices or {}:
-            for contract in self.get_chain(underlying).contracts:
-                if contract.symbol == option_symbol:
-                    return contract
-        return None

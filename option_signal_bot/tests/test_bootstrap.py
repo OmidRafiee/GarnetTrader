@@ -142,11 +142,23 @@ def test_unknown_provider_fails_loudly(settings):
 
 
 def test_option_chain_receives_config(settings):
-    settings["option_chain"] = {"provider": "mock", "strikes_per_side": 2, "base_vol": 0.4}
+    """تنظیمات باید به کلاینت زنجیره برسد.
+
+    از provider=fixture استفاده می‌شود چون داده‌ی ساختگی حذف شده و این
+    تنها راه ساخت زنجیره بدون شبکه است.
+    """
+    from pathlib import Path
+
+    fixture = Path(__file__).parent / "fixtures" / "tsetmc_option_market_watch.json"
+    settings["option_chain"] = {
+        "provider": "fixture",
+        "fixture_path": str(fixture),
+        "quality": {"min_days_to_expiry": 7},
+    }
+    settings["market_data"] = {"provider": "tsetmc", "fixture_path": str(fixture)}
     market_data = bootstrap.build_market_data(settings)
     chain_client = bootstrap.build_option_chain(settings, market_data)
-    assert chain_client.strikes_per_side == 2
-    assert chain_client.base_vol == 0.4
+    assert chain_client.quality.min_days_to_expiry == 7
 
 
 def test_telegram_is_skipped_without_token(settings):
@@ -261,22 +273,16 @@ def test_existing_config_unreadable_raises_instead_of_mock(monkeypatch, tmp_path
     assert "PyYAML" in str(err.value)
 
 
-def test_unreadable_config_allowed_when_caller_wants_mock(monkeypatch, tmp_path):
-    """با require_readable=False (یعنی --mock/--dry-run) خطا نمی‌دهد."""
-    cfg = tmp_path / "settings.yaml"
-    cfg.write_text(CFG_BODY, encoding="utf-8")
-    _hide_yaml(monkeypatch)
-
-    settings = load_settings(cfg, require_readable=False)
-
-    assert settings["option_chain"]["provider"] == "mock"
-
-
 def test_missing_config_is_not_an_error(monkeypatch, tmp_path):
-    """نبودن فایل تنظیمات حالت مجاز است (اجرای بدون نصب)."""
+    """نبودن فایل تنظیمات حالت مجاز است، و پیش‌فرض **داده‌ی واقعی**.
+
+    این مهم‌ترین تضمین این لایه است: هیچ مسیری نباید به داده‌ی ساختگی
+    برسد، چون دیگر داده‌ی ساختگی‌ای وجود ندارد.
+    """
     _hide_yaml(monkeypatch)
     settings = load_settings(tmp_path / "does_not_exist.yaml")
-    assert settings["option_chain"]["provider"] == "mock"
+    assert settings["option_chain"]["provider"] == "tsetmc"
+    assert settings["market_data"]["provider"] == "tsetmc"
 
 
 def test_force_utf8_stdio_is_idempotent_and_safe():
@@ -285,3 +291,45 @@ def test_force_utf8_stdio_is_idempotent_and_safe():
 
     force_utf8_stdio()
     force_utf8_stdio()
+
+# ----------------------------------------------------------------------
+# گارد: داده‌ی ساختگی نباید برگردد
+# ----------------------------------------------------------------------
+def test_no_mock_data_source_exists_anywhere():
+    """هیچ کلاس تولیدکننده‌ی داده‌ی ساختگی نباید در مخزن باشد.
+
+    داده‌ی ساختگی یک بار باعث شد ربات با قیمت جعلی سیگنال بدهد، و آن
+    سیگنال از سیگنال واقعی قابل تشخیص نبود. حالا که حذف شده، این تست
+    مانع برگشتنش می‌شود.
+    """
+    root = Path(__file__).resolve().parent.parent
+    offenders = []
+    for path in root.rglob("*.py"):
+        rel = path.relative_to(root).as_posix()
+        if rel.startswith((".venv/", "tests/")) or "__pycache__" in rel:
+            continue
+        source = path.read_text(encoding="utf-8")
+        for name in ("class MockMarketDataClient", "class MockOptionChainClient",
+                     "class MockBroker"):
+            if name in source:
+                offenders.append(f"{rel}: {name}")
+    assert offenders == [], f"داده‌ی ساختگی برگشته است: {offenders}"
+
+
+def test_default_providers_are_real():
+    """پیش‌فرض تنظیمات باید داده‌ی واقعی باشد، در هر شرایطی.
+
+    این همان جایی است که باگ قبلی زندگی می‌کرد: پیش‌فرض `mock` بود، پس
+    هر خطای تنظیماتی بی‌صدا به قیمت ساختگی ختم می‌شد.
+    """
+    defaults = default_settings()
+    assert defaults["market_data"]["provider"] == "tsetmc"
+    assert defaults["option_chain"]["provider"] == "tsetmc"
+
+
+def test_no_provider_named_mock_is_registered():
+    """رجیستری provider نباید گزینه‌ی mock داشته باشد."""
+    import bootstrap
+
+    assert "mock" not in bootstrap.MARKET_DATA_PROVIDERS
+    assert "mock" not in bootstrap.OPTION_CHAIN_PROVIDERS

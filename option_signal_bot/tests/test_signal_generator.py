@@ -9,8 +9,6 @@ from pathlib import Path
 
 import pytest
 
-from data.market_data_client import MockMarketDataClient
-from data.option_chain_client import MockOptionChainClient
 from risk.risk_calculator import RiskCalculator, RiskLimits
 from signals.signal_generator import GeneratorConfig, SignalGenerator
 from signals.signal_model import OptionType, Side, Signal
@@ -31,16 +29,6 @@ class AlwaysBuyAtmCall(BaseStrategy):
         if contract is None:
             return []
         return [self.build_signal(context, contract, Side.BUY, "تست", confidence=0.9)]
-
-
-@pytest.fixture
-def market_data() -> MockMarketDataClient:
-    return MockMarketDataClient(seed=42)
-
-
-@pytest.fixture
-def option_chain(market_data) -> MockOptionChainClient:
-    return MockOptionChainClient(market_data)
 
 
 def make_generator(market_data, option_chain, strategies, **config_kwargs) -> SignalGenerator:

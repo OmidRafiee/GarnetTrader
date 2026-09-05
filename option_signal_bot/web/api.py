@@ -150,7 +150,7 @@ def get_signals(
 
 
 @app.post("/api/scan")
-async def run_scan(mock: bool = False) -> dict[str, Any]:
+async def run_scan() -> dict[str, Any]:
     """یک پاس رصد بازار.
 
     سفارشی ثبت نمی‌شود؛ فقط سیگنال تولید، ذخیره و به notifierها فرستاده
@@ -161,9 +161,6 @@ async def run_scan(mock: bool = False) -> dict[str, Any]:
 
     async with _scan_lock:
         settings = _settings()
-        if mock:
-            settings.setdefault("market_data", {})["provider"] = "mock"
-            settings.setdefault("option_chain", {})["provider"] = "mock"
 
         def _work() -> list[Signal]:
             # از run_cycle خودِ main.py استفاده می‌کنیم تا منطق پاس رصد

@@ -28,6 +28,17 @@ FIXTURE = Path(__file__).parent / "fixtures" / "tsetmc_option_market_watch.json"
 UNDERLYING = "خودرو"
 
 
+def _row_for(payload, underlying=UNDERLYING):
+    """اولین ردیف مربوط به نماد پایه‌ی مورد نظر.
+
+    قبلاً `[0]` استفاده می‌شد، ولی ترتیب ردیف‌ها در پاسخ TSETMC تضمینی
+    نیست و با هر بار ضبط دوباره عوض می‌شود. انتخاب بر اساس نماد، تست را
+    به ترتیب دلخواه بازار وابسته نمی‌کند.
+    """
+    rows = payload["instrumentOptMarketWatch"]
+    return next(r for r in rows if r.get("lval30_UA") == underlying)
+
+
 class CountingSource(PayloadSource):
     """منبعی که تعداد fetch را می‌شمارد — برای تست کش."""
 
@@ -78,7 +89,7 @@ def test_parse_tsetmc_date_rejects_garbage(bad):
 
 
 def test_chain_maps_real_fields(client, payload):
-    row = payload["instrumentOptMarketWatch"][0]
+    row = _row_for(payload)
     chain = client.get_chain(UNDERLYING)
 
     call = next(c for c in chain.contracts if c.symbol == row["lVal18AFC_C"])
@@ -96,7 +107,7 @@ def test_chain_maps_real_fields(client, payload):
 
 
 def test_chain_spot_comes_from_payload(client, payload):
-    row = payload["instrumentOptMarketWatch"][0]
+    row = _row_for(payload)
     chain = client.get_chain(UNDERLYING)
     assert chain.spot_price == float(row["pDrCotVal_UA"])
 
@@ -119,14 +130,35 @@ def test_zero_quote_means_no_quote_not_zero_price(client):
 # ----------------------------------------------------------------------
 # گیت‌های کیفیت داده
 # ----------------------------------------------------------------------
-def test_contract_without_any_quote_is_dropped():
+def test_contract_without_any_quote_is_dropped(tmp_path):
+    """قرارداد بدون هیچ مظنه‌ای باید حذف شود.
+
+    شرط لازم را خودمان می‌سازیم: در نمونه‌ی ضبط‌شده ممکن است همه‌ی
+    قراردادهای یک نماد مظنه داشته باشند، و آن‌وقت تست چیزی را نمی‌سنجد.
+    وابسته‌کردن تست به شانسِ داده‌ی آن روز، تست را بی‌ارزش می‌کند.
+    """
+    payload = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    rows = payload["instrumentOptMarketWatch"]
+    targets = [r for r in rows if r.get("lval30_UA") == UNDERLYING]
+    assert targets, "نماد پایه در نمونه نیست"
+
+    # مظنه‌ی چند ردیف را خالی کن تا گیت کیفیت چیزی برای حذف داشته باشد
+    for row in targets[:3]:
+        # pClosing هم fallback آخرین قیمت است؛ بدون آن قرارداد حذف نمی‌شود
+        for key in ("pMeDem_C", "pMeOf_C", "pDrCotVal_C", "pClosing_C",
+                    "pMeDem_P", "pMeOf_P", "pDrCotVal_P", "pClosing_P"):
+            row[key] = 0
+
+    doctored = tmp_path / "chain.json"
+    doctored.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
     strict = TsetmcOptionChainClient(
-        FilePayloadSource(FIXTURE),
+        FilePayloadSource(doctored),
         cache_ttl_seconds=float("inf"),
         quality=DataQualityRules(require_quote=True, max_relative_spread=None),
     )
     loose = TsetmcOptionChainClient(
-        FilePayloadSource(FIXTURE),
+        FilePayloadSource(doctored),
         cache_ttl_seconds=float("inf"),
         quality=DataQualityRules(require_quote=False, max_relative_spread=None),
     )
@@ -225,7 +257,7 @@ def test_source_name_reports_fixture(client):
 # ----------------------------------------------------------------------
 def test_market_data_resolves_ins_code_from_option_payload(payload):
     market = TsetmcMarketDataClient(source=CountingSource(payload))
-    row = payload["instrumentOptMarketWatch"][0]
+    row = _row_for(payload)
     assert market.resolve_ins_code(UNDERLYING) == row["uaInsCode"]
     assert UNDERLYING in market.available_symbols()
 
@@ -234,7 +266,7 @@ def test_market_data_quote_without_extra_request(payload):
     source = CountingSource(payload)
     market = TsetmcMarketDataClient(source=source)
     quote = market.get_quote(UNDERLYING)
-    row = payload["instrumentOptMarketWatch"][0]
+    row = _row_for(payload)
     assert quote.last_price == float(row["pDrCotVal_UA"])
     assert quote.symbol == UNDERLYING
     assert source.calls == 1  # قیمت پایه از همان پاسخ زنجیره می‌آید

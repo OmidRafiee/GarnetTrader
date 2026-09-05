@@ -13,8 +13,6 @@ from datetime import date, timedelta
 import pytest
 
 from backtest.signal_backtester import BacktestReport, SignalBacktester, SignalOutcome
-from data.market_data_client import Candle, MockMarketDataClient
-from data.option_chain_client import MockOptionChainClient
 from signals.signal_model import OptionType, Side, Signal
 from strategies.directional_strategy import DirectionalStrategy
 from strategies.neutral_strategy import NeutralStrategy
@@ -23,15 +21,10 @@ SYMBOL = "خودرو"
 
 
 @pytest.fixture
-def market_data() -> MockMarketDataClient:
-    return MockMarketDataClient(seed=42)
-
-
-@pytest.fixture
-def backtester(market_data) -> SignalBacktester:
+def backtester(market_data, option_chain) -> SignalBacktester:
     return SignalBacktester(
         market_data=market_data,
-        option_chain=MockOptionChainClient(market_data),
+        option_chain=option_chain,
         strategies=[DirectionalStrategy(), NeutralStrategy()],
         horizon_days=10,
         warmup_days=30,
@@ -41,9 +34,9 @@ def backtester(market_data) -> SignalBacktester:
 # ----------------------------------------------------------------------
 # هم‌راستایی قیمت (رگرسیون واقعی)
 # ----------------------------------------------------------------------
-def test_chain_spot_follows_the_window_not_today(backtester, market_data):
+def test_chain_spot_follows_the_window_not_today(backtester, option_chain):
     """قیمت زنجیره در هر پنجره باید قیمت همان پنجره باشد، نه قیمت امروز."""
-    chain = MockOptionChainClient(market_data).get_chain(SYMBOL)
+    chain = option_chain.get_chain(SYMBOL)
     window_close = 123.45
     window_date = date.today() - timedelta(days=40)
 
@@ -54,12 +47,12 @@ def test_chain_spot_follows_the_window_not_today(backtester, market_data):
     assert shifted.as_of.date() == window_date
 
 
-def test_context_spot_equals_window_close(backtester, market_data):
+def test_context_spot_equals_window_close(backtester, market_data, option_chain):
     """`context.spot` نباید از قیمت پایانی همان پنجره فاصله بگیرد."""
     history = market_data.get_history(SYMBOL, 60)
     window = history[:45]
     chain = backtester._chain_at(
-        MockOptionChainClient(market_data).get_chain(SYMBOL),
+        option_chain.get_chain(SYMBOL),
         window[-1].date,
         window[-1].close,
     )
@@ -67,9 +60,9 @@ def test_context_spot_equals_window_close(backtester, market_data):
     assert context.spot == pytest.approx(window[-1].close)
 
 
-def test_expiries_shift_with_the_window(backtester, market_data):
+def test_expiries_shift_with_the_window(backtester, option_chain):
     """روزهای باقی‌مانده تا سررسید باید در پنجره‌های قدیمی هم معقول بماند."""
-    chain = MockOptionChainClient(market_data).get_chain(SYMBOL)
+    chain = option_chain.get_chain(SYMBOL)
     window_date = date.today() - timedelta(days=120)
     shifted = backtester._chain_at(chain, window_date, 100.0)
 
@@ -101,10 +94,10 @@ def test_empty_report_summary():
     assert "هیچ سیگنالی" in BacktestReport().summary()
 
 
-def test_history_shorter_than_warmup_yields_nothing(market_data):
+def test_history_shorter_than_warmup_yields_nothing(market_data, option_chain):
     tiny = SignalBacktester(
         market_data=market_data,
-        option_chain=MockOptionChainClient(market_data),
+        option_chain=option_chain,
         strategies=[DirectionalStrategy()],
         warmup_days=30,
         horizon_days=10,

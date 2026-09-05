@@ -31,13 +31,15 @@ def default_settings() -> dict[str, Any]:
             "poll_interval_seconds": 300,
             "run_only_when_market_open": False,
         },
+        # پیش‌فرض عمداً داده‌ی **واقعی** است. پروژه داده‌ی ساختگی ندارد،
+        # پس هیچ خطای تنظیماتی نمی‌تواند بی‌صدا به قیمت جعلی منجر شود.
         "market_data": {
-            "provider": "mock",
-            "symbols": ["خودرو", "فولاد"],
+            "provider": "tsetmc",
+            "symbols": ["خودرو", "شستا"],
             "history_days": 90,
             "risk_free_rate": 0.25,
         },
-        "option_chain": {"provider": "mock"},
+        "option_chain": {"provider": "tsetmc"},
         "signals": {
             "validity_minutes": 30,
             "dedupe_window_minutes": 60,
@@ -95,11 +97,7 @@ class SettingsError(RuntimeError):
     """خطای تنظیمات که باید اجرا را متوقف کند، نه اینکه بی‌صدا رد شود."""
 
 
-def load_settings(
-    config_path: Path | str | None = None,
-    *,
-    require_readable: bool = True,
-) -> dict[str, Any]:
+def load_settings(config_path: Path | str | None = None) -> dict[str, Any]:
     """خواندن تنظیمات yaml و ادغام عمیق آن با پیش‌فرض‌ها."""
     defaults = default_settings()
     path = Path(config_path) if config_path else DEFAULT_CONFIG_PATH
@@ -111,20 +109,14 @@ def load_settings(
     try:
         import yaml  # وابستگی نرم
     except ImportError:
-        if not require_readable:
-            # فراخوان صریحاً داده mock خواسته (--mock / --dry-run)؛
-            # نخواندن فایل تنظیمات اینجا غافلگیرکننده نیست.
-            logger.warning("PyYAML نصب نیست؛ فایل تنظیمات نادیده گرفته شد (حالت mock).")
-            return defaults
-
-        # فایل تنظیمات **وجود دارد** ولی قابل خواندن نیست. برگرداندن پیش‌فرض‌ها
-        # یعنی بی‌صدا رفتن روی provider=mock: ربات با قیمت ساختگی سیگنال می‌دهد
-        # که از سیگنال واقعی قابل تشخیص نیست. این یک خطاست، نه یک هشدار.
+        # فایل تنظیمات **وجود دارد** ولی خوانده نمی‌شود. حالا که داده‌ی
+        # ساختگی حذف شده، خطرِ «قیمت جعلی» نیست — ولی همچنان یعنی نمادها،
+        # سقف ریسک و پارامترهای استراتژی شما نادیده گرفته می‌شوند و ربات
+        # با پیش‌فرض‌های دیگری کار می‌کند. این خطاست، نه هشدار.
         raise SettingsError(
             f"فایل تنظیمات {path} وجود دارد ولی PyYAML نصب نیست، پس خوانده نشد.\n"
-            "بدون آن، ربات بی‌صدا روی داده mock (قیمت ساختگی) کار می‌کند.\n"
-            "راه‌حل:  .venv\\Scripts\\python.exe -m pip install PyYAML\n"
-            "اگر واقعاً داده mock می‌خواهید، فایل تنظیمات را بردارید یا --mock بدهید."
+            "یعنی نمادها، سقف ریسک و پارامترهای استراتژی شما اعمال نمی‌شود.\n"
+            "راه‌حل:  .venv\\Scripts\\python.exe -m pip install PyYAML"
         ) from None
 
     with path.open("r", encoding="utf-8") as handle:

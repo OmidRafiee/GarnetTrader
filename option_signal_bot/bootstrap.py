@@ -20,10 +20,9 @@ from backtest.signal_backtester import SignalBacktester
 from config.loader import build_dataclass, resolve_path, section
 from data.market_data_client import (
     MarketDataClient,
-    MockMarketDataClient,
     PytseMarketDataClient,
 )
-from data.option_chain_client import MockOptionChainClient, OptionChainClient
+from data.option_chain_client import OptionChainClient
 from data.tsetmc_market_data_client import TsetmcMarketDataClient
 from data.tsetmc_option_chain_client import (
     DataQualityRules,
@@ -56,7 +55,6 @@ def _payload_source(config: dict[str, Any]) -> PayloadSource:
 
 #: نام provider در تنظیمات → سازنده کلاینت داده پایه
 MARKET_DATA_PROVIDERS: dict[str, Callable[[dict[str, Any]], MarketDataClient]] = {
-    "mock": lambda _config: MockMarketDataClient(),
     "pytse": lambda config: PytseMarketDataClient(
         allow_fallback=config.get("allow_fallback", True)
     ),
@@ -115,11 +113,6 @@ def _build_fixture_chain(config, market_data, _risk_free_rate) -> OptionChainCli
 
 #: نام provider در تنظیمات → سازنده کلاینت زنجیره آپشن
 OPTION_CHAIN_PROVIDERS: dict[str, Callable[..., OptionChainClient]] = {
-    "mock": lambda config, market_data, risk_free_rate: MockOptionChainClient(
-        market_data,
-        risk_free_rate=risk_free_rate,
-        **_mock_chain_kwargs(config),
-    ),
     "tsetmc": _build_tsetmc_chain,
     "fixture": _build_fixture_chain,
 }
@@ -145,16 +138,6 @@ class AppContext:
 # ----------------------------------------------------------------------
 # سازنده‌های تک‌تک اجزا
 # ----------------------------------------------------------------------
-def _mock_chain_kwargs(config: dict[str, Any]) -> dict[str, Any]:
-    """کلیدهای مرتبط تنظیمات را به آرگومان‌های `MockOptionChainClient` نگاشت می‌کند."""
-    kwargs: dict[str, Any] = {}
-    for key in ("strikes_per_side", "base_vol", "spread_pct"):
-        if key in config:
-            kwargs[key] = config[key]
-    if "expiry_days" in config:
-        kwargs["expiry_days"] = tuple(config["expiry_days"])
-    return kwargs
-
 
 def _pick(registry: dict[str, Any], name: str, kind: str):
     """انتخاب provider از رجیستری با خطای خوانا در صورت نام اشتباه."""
@@ -168,7 +151,7 @@ def _pick(registry: dict[str, Any], name: str, kind: str):
 
 def build_market_data(settings: dict[str, Any]) -> MarketDataClient:
     config = section(settings, "market_data")
-    provider = config.get("provider", "mock")
+    provider = config.get("provider", "tsetmc")
     return _pick(MARKET_DATA_PROVIDERS, provider, "provider داده بازار")(config)
 
 
@@ -176,7 +159,7 @@ def build_option_chain(
     settings: dict[str, Any], market_data: MarketDataClient
 ) -> OptionChainClient:
     config = section(settings, "option_chain")
-    provider = config.get("provider", "mock")
+    provider = config.get("provider", "tsetmc")
     risk_free_rate = section(settings, "market_data").get("risk_free_rate", 0.25)
     builder = _pick(OPTION_CHAIN_PROVIDERS, provider, "provider زنجیره آپشن")
     return builder(config, market_data, risk_free_rate)

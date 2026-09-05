@@ -16,9 +16,11 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from data.market_data_client import Candle, MarketDataClient, Quote
@@ -58,6 +60,7 @@ class TsetmcMarketDataClient(MarketDataClient):
         user_agent: str = DEFAULT_USER_AGENT,
         directory_ttl_seconds: float = 3_600.0,
         history_ttl_seconds: float = 900.0,
+        history_dir: str | Path | None = None,
     ) -> None:
         self.source = source or HttpPayloadSource(market=0)
         self.timeout = timeout
@@ -65,6 +68,8 @@ class TsetmcMarketDataClient(MarketDataClient):
         self.user_agent = user_agent
         self.directory_ttl_seconds = directory_ttl_seconds
         self.history_ttl_seconds = history_ttl_seconds
+        #: اگر داده شود، تاریخچه از فایل ضبط‌شده خوانده می‌شود نه شبکه
+        self.history_dir = history_dir
         self._directory: dict[str, dict[str, Any]] = {}
         self._directory_at: float | None = None
         self._history: dict[str, tuple[float, list[Candle]]] = {}
@@ -150,13 +155,7 @@ class TsetmcMarketDataClient(MarketDataClient):
             return cached[1][-days:]
 
         ins_code = self.resolve_ins_code(key)
-        payload = fetch_json(
-            DAILY_HISTORY_URL.format(ins_code=ins_code),
-            timeout=self.timeout,
-            retries=self.retries,
-            user_agent=self.user_agent,
-            label=f"تاریخچه {symbol}",
-        )
+        payload = self._fetch_history_payload(ins_code, symbol)
         rows = payload.get(HISTORY_KEY)
         if not isinstance(rows, list) or not rows:
             raise ValueError(f"تاریخچه‌ای برای نماد «{symbol}» برنگشت.")
@@ -168,6 +167,29 @@ class TsetmcMarketDataClient(MarketDataClient):
         return candles[-days:]
 
     # ------------------------------------------------------------------
+    def _fetch_history_payload(self, ins_code: str, symbol: str) -> dict[str, Any]:
+        """پاسخ خام تاریخچه — از شبکه، یا از فایل ضبط‌شده.
+
+        جداکردنش از `get_history` باعث می‌شود تست بتواند روی پاسخ **واقعیِ**
+        ضبط‌شده اجرا شود، بدون شبکه و بدون داده‌ی ساختگی.
+        """
+        if self.history_dir is not None:
+            path = Path(self.history_dir) / f"{ins_code}.json"
+            if not path.exists():
+                raise FileNotFoundError(
+                    f"تاریخچه ضبط‌شده برای {symbol} (کد {ins_code}) پیدا نشد: {path}\n"
+                    "با scripts/record_fixtures.py ضبطش کنید."
+                )
+            return json.loads(path.read_text(encoding="utf-8"))
+
+        return fetch_json(
+            DAILY_HISTORY_URL.format(ins_code=ins_code),
+            timeout=self.timeout,
+            retries=self.retries,
+            user_agent=self.user_agent,
+            label=f"تاریخچه {symbol}",
+        )
+
     @staticmethod
     def _to_candle(row: dict[str, Any]) -> Candle | None:
         """یک رکورد روزانه را به `Candle` تبدیل می‌کند؛ رکورد ناقص را رد می‌کند."""

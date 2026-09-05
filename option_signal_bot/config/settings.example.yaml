@@ -7,9 +7,9 @@ general:
   run_only_when_market_open: true
 
 market_data:
+  # این پروژه داده‌ی ساختگی ندارد؛ هر دو provider واقعی‌اند.
   # tsetmc = داده واقعی از API عمومی TSETMC (بدون نیاز به لاگین یا توکن)
   # pytse  = کتابخانه pytse-client
-  # mock   = داده مصنوعی برای تست
   provider: tsetmc
   # فقط نمادهایی که آپشن دارند. لیست به‌روز را ببینید با:
   #   python scripts/fetch_tsetmc_sample.py
@@ -20,14 +20,10 @@ market_data:
   history_days: 90
   risk_free_rate: 0.28         # نرخ بهره بدون ریسک سالانه (اعشاری)
   history_ttl_seconds: 900     # کش تاریخچه (فقط provider=tsetmc)
-  # مخصوص provider=pytse: در اجرای واقعی false بگذارید تا خطای دیتا پنهان نشود
-  # و سیگنال با قیمت mock ساخته نشود
-  allow_fallback: false
 
 option_chain:
   # tsetmc  = زنجیره واقعی از دیده‌بان بازار آپشن TSETMC (یک درخواست، کل بازار)
   # fixture = پخش یک پاسخ ضبط‌شده (تست آفلاین / بازتولید یک روز خاص)
-  # mock    = زنجیره مصنوعی
   provider: tsetmc
   market: 0                    # 0=همه، 1=بورس، 2=فرابورس
   cache_ttl_seconds: 20        # کش پاسخ؛ همه نمادهای یک پاس از آن تغذیه می‌شوند
@@ -45,11 +41,6 @@ option_chain:
   # مخصوص provider=fixture
   # fixture_path: tests/fixtures/tsetmc_option_market_watch.json
 
-  # مخصوص provider=mock
-  strikes_per_side: 4          # تعداد استرایک هر طرف ATM در زنجیره mock
-  expiry_days: [21, 49, 90]    # سررسیدهای شبیه‌سازی‌شده
-  base_vol: 0.55               # نوسان پایه برای ساخت پرمیوم mock
-  spread_pct: 0.03             # اسپرد مظنه خرید/فروش
 
 signals:
   validity_minutes: 30         # مدت اعتبار هر سیگنال

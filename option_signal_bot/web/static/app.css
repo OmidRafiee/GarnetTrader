@@ -229,7 +229,6 @@ input[type="search"] { width: 100%; margin-bottom: 10px; }
   padding-top: 9px;
 }
 .sig-src { font-size: 11px; color: var(--text-faint); margin-top: 6px; }
-.sig-src.is-mock { color: #e0b567; }
 
 /* ------------------------------- cards ------------------------------- */
 .card {
