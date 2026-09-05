@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -307,6 +308,145 @@ def update_risk(update: RiskUpdate) -> dict[str, Any]:
     return {"ok": True, "applied": patch}
 
 
+@app.get("/api/report")
+def get_report(days: int | None = None) -> dict[str, Any]:
+    """گزارش عملکرد سیگنال‌ها.
+
+    `days=None` یعنی کل تاریخچه. `win_rate` وقتی هیچ سیگنالی نتیجه
+    نگرفته `null` است، نه صفر — این دو یکی نیستند.
+    """
+    from storage.reporting import SignalReporter
+
+    settings = _settings()
+    storage = section(settings, "storage")
+    path = resolve_path(storage.get("sqlite_path", "var/signals.db"))
+
+    with SignalReporter(path) as reporter:
+        return {
+            "summary": reporter.summary(days),
+            "by_strategy": [
+                {
+                    "strategy": s.strategy,
+                    "total": s.total,
+                    "wins": s.wins,
+                    "losses": s.losses,
+                    "pending": s.pending,
+                    "win_rate": s.win_rate,
+                    "avg_pnl_pct": s.avg_pnl_pct,
+                    "best_pnl_pct": s.best_pnl_pct,
+                    "worst_pnl_pct": s.worst_pnl_pct,
+                }
+                for s in reporter.by_strategy(days)
+            ],
+            "by_underlying": reporter.by_underlying(days),
+            "daily": reporter.daily_counts(days or 30),
+            "recent": reporter.recent(limit=50, days=days),
+        }
+
+
+@app.post("/api/report/evaluate")
+async def evaluate_pending() -> dict[str, Any]:
+    """نتیجه‌ی سیگنال‌های در انتظار را با **قیمت واقعی** بازار می‌سنجد.
+
+    قیمت از TSETMC خوانده می‌شود. اگر نمادی قیمت نداشته باشد، رد می‌شود
+    و نتیجه‌ی جعلی ثبت نمی‌شود.
+    """
+    from storage.reporting import SignalReporter, evaluate_signal
+
+    settings = _settings()
+    storage = section(settings, "storage")
+    path = resolve_path(storage.get("sqlite_path", "var/signals.db"))
+
+    def _work() -> dict[str, Any]:
+        context = create_app(settings, dry_run=True, as_json=False)
+        evaluated = skipped = 0
+        try:
+            with SignalReporter(path) as reporter:
+                pending = reporter.pending_signals()
+                for row in pending:
+                    payload = json.loads(row["payload"])
+                    underlying = payload.get("underlying")
+                    symbol = payload.get("symbol")
+                    if not underlying or not symbol:
+                        skipped += 1
+                        continue
+                    try:
+                        chain = context.option_chain.get_chain(underlying)
+                        match = next(
+                            (c for c in chain.contracts if c.symbol == symbol), None
+                        )
+                        price = match.last_price or match.bid if match else None
+                    except Exception:  # noqa: BLE001 - نماد ممکن است دیگر نباشد
+                        price = None
+
+                    if not price:
+                        skipped += 1
+                        continue
+
+                    outcome, pnl, hit_t, hit_s = evaluate_signal(payload, float(price))
+                    reporter.record_outcome(
+                        row["signal_id"], float(price), pnl, outcome, hit_t, hit_s
+                    )
+                    evaluated += 1
+        finally:
+            context.close()
+        return {"evaluated": evaluated, "skipped": skipped}
+
+    try:
+        return await asyncio.to_thread(_work)
+    except Exception as exc:  # noqa: BLE001 - پیام به UI می‌رود
+        logger.exception("ارزیابی سیگنال‌ها ناموفق بود.")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/report/export")
+def export_report(days: int | None = None) -> FileResponse:
+    """خروجی CSV برای اکسل."""
+    from storage.reporting import SignalReporter
+
+    settings = _settings()
+    storage = section(settings, "storage")
+    path = resolve_path(storage.get("sqlite_path", "var/signals.db"))
+    out = resolve_path("var/signal_report.csv")
+
+    with SignalReporter(path) as reporter:
+        count = reporter.export_csv(out, days)
+    logger.info("گزارش CSV با %s ردیف ساخته شد.", count)
+
+    return FileResponse(
+        out, media_type="text/csv", filename=f"garnet-signals-{date.today()}.csv"
+    )
+
+
+class BrokerUpdate(BaseModel):
+    enabled: bool | None = None
+    token: str | None = None
+    session_file: str | None = None
+
+
+@app.put("/api/broker")
+def update_broker(update: BrokerUpdate) -> dict[str, Any]:
+    """تنظیم اتصال حساب کارگزاری از خود پنل.
+
+    ⚠️ توکن در `settings.yaml` ذخیره می‌شود که در `.gitignore` است. عمر
+    کوتاهی دارد و باید هر چند ساعت تازه شود.
+    """
+    patch: dict[str, Any] = {}
+    if update.enabled is not None:
+        patch["enabled"] = update.enabled
+    if update.token is not None:
+        patch["token"] = update.token.strip()
+    if update.session_file is not None:
+        patch["session_file"] = update.session_file.strip()
+
+    if not patch:
+        raise HTTPException(status_code=400, detail="هیچ مقداری برای تغییر داده نشد.")
+
+    _patch_settings({"broker": patch})
+    # توکن هرگز برنمی‌گردد
+    return {"ok": True, "applied": sorted(k for k in patch if k != "token")}
+
+
 @app.get("/api/account")
 def get_account() -> dict[str, Any]:
     """پوزیشن‌های واقعی حساب کارگزاری — **فقط خواندن**.
@@ -320,20 +460,29 @@ def get_account() -> dict[str, Any]:
     if not broker_cfg.get("enabled"):
         return {
             "enabled": False,
-            "reason": "اتصال به حساب کارگزاری در تنظیمات خاموش است "
-            "(broker.enabled).",
+            "reason": "اتصال به حساب کارگزاری خاموش است. "
+            "از همین صفحه «فعال باشد» را تیک بزنید و توکن را وارد کنید.",
             "positions": [],
         }
 
     try:
         from brokers.emofid import EmofidAccountClient
 
-        client = EmofidAccountClient.from_session_file(
-            resolve_path(broker_cfg.get("session_file", "var/emofid/session.json")),
-            base_url=broker_cfg.get("base_url", "https://api-mts.orbis.easytrader.ir"),
-            timeout=broker_cfg.get("timeout", 15),
-            retries=broker_cfg.get("retries", 3),
-        )
+        common = {
+            "base_url": broker_cfg.get("base_url", "https://api-mts.orbis.easytrader.ir"),
+            "timeout": broker_cfg.get("timeout", 15),
+            "retries": broker_cfg.get("retries", 3),
+        }
+        # توکن صریح مقدم است: API آپشن هدر authorization می‌خواهد و فایل
+        # سشن (که فقط کوکی دارد) برای آن کافی نیست.
+        token = (broker_cfg.get("token") or "").strip()
+        if token:
+            client = EmofidAccountClient(token=token, **common)
+        else:
+            client = EmofidAccountClient.from_session_file(
+                resolve_path(broker_cfg.get("session_file", "var/emofid/session.json")),
+                **common,
+            )
         positions = client.get_positions()
     except Exception as exc:  # noqa: BLE001 - پیام به UI می‌رود، داشبورد نمی‌خوابد
         logger.warning("خواندن حساب کارگزاری ناموفق بود: %s", exc)

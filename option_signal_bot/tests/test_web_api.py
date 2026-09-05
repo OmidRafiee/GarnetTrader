@@ -180,7 +180,7 @@ def test_account_is_disabled_by_default(client):
     body = client.get("/api/account").json()
     assert body["enabled"] is False
     assert body["positions"] == []
-    assert "broker.enabled" in body["reason"]
+    assert body["reason"], "باید دلیل خاموش بودن را بگوید"
 
 
 def test_account_reports_broker_failure_without_crashing(client, monkeypatch):

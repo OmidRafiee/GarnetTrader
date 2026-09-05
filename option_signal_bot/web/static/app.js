@@ -53,7 +53,8 @@ $("#tabs").addEventListener("click", (e) => {
   if (btn.dataset.tab === "strategies") loadStrategies();
   if (btn.dataset.tab === "symbols") loadSymbols();
   if (btn.dataset.tab === "risk") loadRisk();
-  if (btn.dataset.tab === "account") loadAccount();
+  if (btn.dataset.tab === "account") { loadBrokerSetup(); loadAccount(); }
+  if (btn.dataset.tab === "report") loadReport();
 });
 
 // ------------------------------------------------------------------ status
@@ -543,6 +544,176 @@ async function loadAccount() {
 }
 
 $("#btn-refresh-account").addEventListener("click", loadAccount);
+
+
+// ------------------------------------------------------------------ report
+const pct = (v) => (v === null || v === undefined ? "نامعلوم" : fmt(v * 100, 1) + "٪");
+const pnl = (v) =>
+  v === null || v === undefined ? "—" : (v >= 0 ? "+" : "") + fmt(v, 1) + "٪";
+
+async function loadReport() {
+  const box = $("#report");
+  box.innerHTML = '<p class="empty">در حال بارگذاری…</p>';
+  const win = $("#report-window").value;
+  try {
+    const d = await api("/api/report" + (win ? `?days=${win}` : ""));
+    box.innerHTML = "";
+
+    // --- خلاصه ---
+    const s = d.summary;
+    const cards = el("div", "stat-row");
+    const stat = (label, value, cls) => {
+      const c = el("div", "stat");
+      c.append(el("div", "stat-v " + (cls || ""), value));
+      c.append(el("div", "stat-k", label));
+      return c;
+    };
+    cards.append(stat("کل سیگنال", fmt(s.total)));
+    cards.append(stat("برد", fmt(s.wins), "v-gain"));
+    cards.append(stat("باخت", fmt(s.losses), "v-loss"));
+    cards.append(stat("در انتظار", fmt(s.pending)));
+    cards.append(stat("نرخ برد", pct(s.win_rate)));
+    cards.append(stat("میانگین سود", pnl(s.avg_pnl_pct),
+      s.avg_pnl_pct >= 0 ? "v-gain" : "v-loss"));
+    box.append(cards);
+
+    if (s.pending === s.total && s.total > 0) {
+      box.append(el("div", "hint",
+        "هیچ سیگنالی هنوز ارزیابی نشده. دکمه «ارزیابی» را بزنید تا قیمت " +
+        "فعلی از بازار خوانده و نتیجه ثبت شود."));
+    }
+
+    // --- به تفکیک استراتژی ---
+    if (d.by_strategy.length) {
+      const card = el("div", "card");
+      card.append(el("h3", "", "به تفکیک استراتژی"));
+      card.append(buildTable(
+        ["استراتژی", "کل", "برد", "باخت", "در انتظار", "نرخ برد", "میانگین", "بهترین", "بدترین"],
+        d.by_strategy.map((r) => [
+          r.strategy, fmt(r.total), fmt(r.wins), fmt(r.losses), fmt(r.pending),
+          pct(r.win_rate), pnl(r.avg_pnl_pct), pnl(r.best_pnl_pct), pnl(r.worst_pnl_pct),
+        ])));
+      box.append(card);
+    }
+
+    // --- به تفکیک نماد ---
+    if (d.by_underlying.length) {
+      const card = el("div", "card");
+      card.append(el("h3", "", "به تفکیک نماد پایه"));
+      card.append(buildTable(
+        ["نماد", "کل", "برد", "باخت", "میانگین سود"],
+        d.by_underlying.map((r) => [
+          r.underlying || "—", fmt(r.total), fmt(r.wins), fmt(r.losses), pnl(r.avg_pnl_pct),
+        ])));
+      box.append(card);
+    }
+
+    // --- سیگنال‌های اخیر ---
+    if (d.recent.length) {
+      const card = el("div", "card");
+      card.append(el("h3", "", `سیگنال‌های اخیر (${d.recent.length})`));
+      card.append(buildTable(
+        ["تاریخ", "نماد", "استراتژی", "پرمیوم", "قیمت فعلی", "سود/زیان", "نتیجه"],
+        d.recent.map((r) => [
+          (r.created_at || "").slice(0, 16).replace("T", " "),
+          r.symbol, r.strategy_name, fmt(r.suggested_price),
+          r.price_at_check ? fmt(r.price_at_check) : "—",
+          pnl(r.pnl_pct), outcomeLabel(r.outcome),
+        ])));
+      box.append(card);
+    }
+  } catch (err) {
+    box.innerHTML = "";
+    box.append(el("div", "error", "خطا: " + err.message));
+  }
+}
+
+function outcomeLabel(o) {
+  return { win: "برد", loss: "باخت", pending: "در انتظار",
+           expired: "منقضی", unknown: "نامعلوم" }[o] || o;
+}
+
+function buildTable(headers, rows) {
+  const wrap = el("div", "table-wrap");
+  const t = el("table");
+  const thead = el("thead");
+  const hr = el("tr");
+  headers.forEach((h) => hr.append(el("th", "", h)));
+  thead.append(hr);
+  t.append(thead);
+  const tb = el("tbody");
+  rows.forEach((row) => {
+    const tr = el("tr");
+    row.forEach((cell) => {
+      const td = el("td", "", String(cell));
+      if (String(cell).startsWith("+")) td.className = "v-gain";
+      else if (String(cell).startsWith("-")) td.className = "v-loss";
+      tr.append(td);
+    });
+    tb.append(tr);
+  });
+  t.append(tb);
+  wrap.append(t);
+  return wrap;
+}
+
+$("#btn-refresh-report").addEventListener("click", loadReport);
+$("#report-window").addEventListener("change", () => {
+  const w = $("#report-window").value;
+  $("#btn-export").href = "/api/report/export" + (w ? `?days=${w}` : "");
+  loadReport();
+});
+
+$("#btn-evaluate").addEventListener("click", async () => {
+  const btn = $("#btn-evaluate");
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spin"></span>در حال خواندن قیمت‌ها…';
+  $("#evaluate-result").innerHTML = "";
+  try {
+    const r = await api("/api/report/evaluate", { method: "POST" });
+    $("#evaluate-result").append(el("div", "ok-box",
+      `${fmt(r.evaluated)} سیگنال ارزیابی شد` +
+      (r.skipped ? `، ${fmt(r.skipped)} رد شد (قیمت در دسترس نبود).` : ".")));
+    await loadReport();
+  } catch (err) {
+    $("#evaluate-result").append(el("div", "error", "ارزیابی ناموفق بود: " + err.message));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+  }
+});
+
+// ------------------------------------------------------------------ broker setup
+async function loadBrokerSetup() {
+  try {
+    const d = await api("/api/account");
+    $("#broker-enabled").checked = !!d.enabled;
+  } catch {
+    /* تب حساب خودش خطا را نشان می‌دهد */
+  }
+}
+
+$("#btn-save-broker").addEventListener("click", async () => {
+  const note = $("#broker-note");
+  const body = { enabled: $("#broker-enabled").checked };
+  const token = $("#broker-token").value.trim();
+  if (token) body.token = token;
+
+  note.className = "note";
+  note.textContent = "در حال ذخیره…";
+  try {
+    await api("/api/broker", { method: "PUT", body: JSON.stringify(body) });
+    note.className = "note ok";
+    note.textContent = "ذخیره شد.";
+    $("#broker-token").value = "";  // توکن در فرم نمی‌ماند
+    toast("تنظیمات کارگزاری ذخیره شد.", "ok");
+    await loadAccount();
+  } catch (err) {
+    note.className = "note bad";
+    note.textContent = err.message;
+  }
+});
 
 // ------------------------------------------------------------------ boot
 loadStatus();

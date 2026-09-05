@@ -30,6 +30,7 @@
   <button class="tab" data-tab="strategies">استراتژی‌ها</button>
   <button class="tab" data-tab="symbols">نمادها</button>
   <button class="tab" data-tab="risk">ریسک</button>
+  <button class="tab" data-tab="report">گزارش</button>
   <button class="tab" data-tab="account">حساب</button>
 </nav>
 
@@ -94,14 +95,56 @@
     </div>
   </section>
 
+  <!-- ================= گزارش ================= -->
+  <section class="panel" id="panel-report">
+    <p class="hint">
+      عملکرد سیگنال‌ها بر اساس <strong>قیمت واقعی بازار</strong>.
+      «ارزیابی» قیمت فعلی هر سیگنال را از TSETMC می‌خواند و نتیجه را ثبت می‌کند.
+      نرخ برد وقتی هیچ سیگنالی نتیجه نگرفته «نامعلوم» است، نه صفر.
+    </p>
+    <div class="toolbar">
+      <button class="btn btn-primary" id="btn-evaluate">ارزیابی سیگنال‌های در انتظار</button>
+      <select id="report-window">
+        <option value="">کل تاریخچه</option>
+        <option value="7">۷ روز اخیر</option>
+        <option value="30">۳۰ روز اخیر</option>
+        <option value="90">۹۰ روز اخیر</option>
+      </select>
+      <span class="spacer"></span>
+      <a class="btn btn-ghost" id="btn-export" href="/api/report/export">خروجی CSV</a>
+      <button class="btn btn-ghost" id="btn-refresh-report">بازخوانی</button>
+    </div>
+    <div id="evaluate-result"></div>
+    <div id="report"><p class="empty">در حال بارگذاری…</p></div>
+  </section>
+
   <!-- ================= حساب ================= -->
   <section class="panel" id="panel-account">
     <p class="hint">
       پوزیشن‌های واقعی حساب شما در کارگزاری — <strong>فقط خواندن</strong>.
       این پروژه هیچ سفارشی ثبت نمی‌کند و هیچ راهی به لایه اجرا ندارد.
     </p>
-    <div class="toolbar">
-      <button class="btn btn-ghost" id="btn-refresh-account">بازخوانی</button>
+    <div class="card card-narrow" id="broker-setup">
+      <h3>اتصال به کارگزاری</h3>
+      <div class="field" style="margin-bottom:11px">
+        <label>
+          <input type="checkbox" id="broker-enabled" style="width:auto;margin-inline-end:6px">
+          فعال باشد
+        </label>
+      </div>
+      <div class="field" style="margin-bottom:11px">
+        <label>توکن دسترسی (authorization)</label>
+        <input type="password" id="broker-token" placeholder="eyJ...">
+        <span class="dflt">
+          از DevTools ← Network ← یک درخواست api-mts ← هدر authorization.
+          عمر کوتاهی دارد و باید تازه شود.
+        </span>
+      </div>
+      <div class="card-actions">
+        <button class="btn btn-primary" id="btn-save-broker">ذخیره</button>
+        <button class="btn btn-ghost" id="btn-refresh-account">بازخوانی حساب</button>
+        <span class="note" id="broker-note"></span>
+      </div>
     </div>
     <div id="account"><p class="empty">در حال بارگذاری…</p></div>
   </section>
