@@ -96,6 +96,9 @@ class OptionChain:
 class OptionChainClient(ABC):
     """قرارداد دریافت زنجیره آپشن."""
 
+    #: برای برچسب‌زدن منبع داده روی هر سیگنال
+    source_name: str = "unknown"
+
     @abstractmethod
     def get_chain(self, underlying: str) -> OptionChain:
         """زنجیره آپشن نماد پایه در لحظه فعلی."""
@@ -107,6 +110,8 @@ class OptionChainClient(ABC):
 
 class MockOptionChainClient(OptionChainClient):
     """زنجیره مصنوعی حول قیمت پایه، با پرمیوم برگرفته از Black-Scholes."""
+
+    source_name = "mock"
 
     def __init__(
         self,

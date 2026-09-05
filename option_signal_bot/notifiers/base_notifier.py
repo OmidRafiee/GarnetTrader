@@ -57,6 +57,9 @@ class BaseNotifier(ABC):
             lines.append(f"حد سود پیشنهادی: {signal.take_profit:,.0f}")
         if signal.confidence is not None:
             lines.append(f"اعتماد: {signal.confidence:.2f}")
+        data_source = signal.metadata.get("data_source")
+        if data_source:
+            lines.append(f"منبع داده: {data_source}")
         lines.extend(
             [
                 f"دلیل: {signal.reason}",

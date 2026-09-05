@@ -83,6 +83,13 @@ class SignalGenerator:
                     logger.info("سیگنال صادر شد: %s", final.summary())
         return collected
 
+    @property
+    def data_source(self) -> str:
+        """برچسب منبع داده، تا سیگنال ساخته‌شده از داده mock قابل تشخیص باشد."""
+        market = getattr(self.market_data, "source_name", "unknown")
+        chain = getattr(self.option_chain, "source_name", "unknown")
+        return f"{market}+{chain}"
+
     def build_context(self, symbol: str) -> StrategyContext:
         """جمع‌آوری داده پایه و زنجیره آپشن در یک شیء فقط-خواندنی."""
         quote = self.market_data.get_quote(symbol)
@@ -95,6 +102,7 @@ class SignalGenerator:
             chain=chain,
             risk_free_rate=self.config.risk_free_rate,
             now=datetime.now(),
+            data_source=self.data_source,
         )
 
     # ------------------------------------------------------------------

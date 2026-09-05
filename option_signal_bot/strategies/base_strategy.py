@@ -27,10 +27,18 @@ class StrategyContext:
     chain: OptionChain
     risk_free_rate: float = 0.25
     now: datetime = field(default_factory=datetime.now)
+    #: برچسب منبع داده (مثل "mock+mock" یا "pytse+tsetmc") برای درج در سیگنال
+    data_source: str = "unknown"
 
     @property
     def spot(self) -> float:
-        return self.quote.reference_price
+        """قیمت نماد پایه.
+
+        اولویت به قیمتی است که **در همان پاسخ زنجیره آپشن** آمده، چون با مظنه‌های
+        آپشن هم‌لحظه است. اختلاف منبع قیمت پایه و پرمیوم، انتخاب استرایک و
+        محاسبه IV را بی‌معنا می‌کند.
+        """
+        return self.chain.spot_price or self.quote.reference_price
 
     @property
     def closes(self) -> list[float]:
@@ -124,6 +132,7 @@ class BaseStrategy(ABC):
                 "contract_size": contract.contract_size,
                 "days_to_expiry": contract.days_to_expiry(context.today()),
                 "open_interest": contract.open_interest,
+                "data_source": context.data_source,
                 **(metadata or {}),
             },
         )
