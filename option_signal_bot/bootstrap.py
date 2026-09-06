@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Any, Callable
 
 from backtest.signal_backtester import SignalBacktester
@@ -31,6 +32,7 @@ from data.tsetmc_option_chain_client import (
     PayloadSource,
     TsetmcOptionChainClient,
 )
+from market.trading_calendar import TradingCalendar
 from notifiers.base_notifier import BaseNotifier
 from notifiers.console_notifier import ConsoleNotifier
 from notifiers.telegram_notifier import TelegramNotifier
@@ -128,6 +130,7 @@ class AppContext:
     generator: SignalGenerator
     notifiers: list[BaseNotifier] = field(default_factory=list)
     signal_log: SignalLog | None = None
+    trading_calendar: TradingCalendar | None = None
 
     def close(self) -> None:
         """آزادسازی منابع (اتصال SQLite)."""
@@ -315,6 +318,35 @@ def build_signal_log(settings: dict[str, Any], dry_run: bool = False) -> SignalL
     )
 
 
+def build_trading_calendar(
+    settings: dict[str, Any], market_data: MarketDataClient | None = None
+) -> TradingCalendar:
+    """تقویم معاملاتی؛ تعطیلات را از تاریخچه‌ی **واقعی** بازار یاد می‌گیرد.
+
+    نماد مرجع باید پرمعامله باشد تا «نبودِ کندل» واقعاً یعنی تعطیلی، نه
+    توقف نماد. پیش‌فرض «خودرو» است که عملاً هیچ‌وقت بسته نیست.
+
+    شکست یادگیری خطا نمی‌دهد: تقویمِ فقط-آخرهفته از نداشتنِ تقویم بهتر است.
+    """
+    config = section(settings, "trading_calendar")
+    calendar = TradingCalendar(
+        holidays=[
+            date.fromisoformat(str(d)) for d in config.get("extra_holidays", []) or []
+        ],
+        cache_path=resolve_path(config.get("cache_path", "var/trading_calendar.json")),
+    )
+
+    if market_data is not None and config.get("learn_from_market", True):
+        learned = calendar.learn_from_client(
+            market_data,
+            symbol=config.get("reference_symbol", "خودرو"),
+            days=int(config.get("learn_days", 365)),
+        )
+        if learned:
+            calendar.save()
+    return calendar
+
+
 def build_backtester(
     settings: dict[str, Any],
     market_data: MarketDataClient,
@@ -338,11 +370,16 @@ def create_app(
 ) -> AppContext:
     """ساخت کل برنامه از تنظیمات — تنها تابعی که entrypoint‌ها لازم دارند."""
     market_data = build_market_data(settings)
+    # تقویم روی خودِ کلاینت می‌نشیند تا `is_market_open` همه‌جا — CLI و
+    # داشبورد — بدون تغییر امضا تعطیلات رسمی را ببیند.
+    calendar = build_trading_calendar(settings, market_data)
+    market_data.trading_calendar = calendar
     option_chain = build_option_chain(settings, market_data)
     return AppContext(
         settings=settings,
         market_data=market_data,
         option_chain=option_chain,
+        trading_calendar=calendar,
         generator=build_generator(settings, market_data, option_chain),
         notifiers=build_notifiers(settings, dry_run=dry_run, as_json=as_json),
         signal_log=build_signal_log(settings, dry_run=dry_run),

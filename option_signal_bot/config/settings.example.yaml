@@ -109,6 +109,18 @@ storage:
   sqlite_path: var/signals.db
   jsonl_path: var/signals.jsonl
 
+# تقویم معاملاتی: تعطیلات را از تاریخچه‌ی **واقعی** بازار یاد می‌گیرد،
+# نه از یک جدول دستی. تعطیلات قمری (تاسوعا، عاشورا، …) هر سال جابه‌جا
+# می‌شوند و جدول دستی هر سال کهنه می‌شود؛ بازار خودش می‌داند.
+trading_calendar:
+  learn_from_market: true
+  # نماد مرجع باید پرمعامله باشد، وگرنه «نبودِ کندل» یعنی توقف نماد نه تعطیلی.
+  reference_symbol: خودرو
+  learn_days: 365
+  cache_path: var/trading_calendar.json
+  # تعطیلی اضطراریِ اعلام‌شده که هنوز در تاریخچه نیامده (YYYY-MM-DD)
+  extra_holidays: []
+
 backtest:
   history_days: 180
   horizon_days: 10

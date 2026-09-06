@@ -76,6 +76,17 @@ async function loadStatus() {
     box.append(el("span", "chip chip-ok", "داده واقعی: " + src));
 
     box.append(el("span", "chip chip-muted", `${fmt(s.signal_count)} سیگنال ذخیره‌شده`));
+
+    // تقویم معاملاتی: وقتی بازار بسته است، مفیدترین خبر «کِی باز می‌شود» است
+    if (s.today_jalali) {
+      box.append(el("span", "chip chip-muted", "امروز " + s.today_jalali));
+    }
+    if (s.next_trading_day) {
+      box.append(el("span", "chip chip-muted", "روز معاملاتی بعدی: " + s.next_trading_day));
+    }
+    if (s.known_holidays) {
+      box.append(el("span", "chip chip-muted", `${fmt(s.known_holidays)} تعطیلی شناخته‌شده`));
+    }
   } catch (err) {
     box.innerHTML = "";
     box.append(el("span", "chip chip-bad", "خطا: " + err.message));

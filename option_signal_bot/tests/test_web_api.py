@@ -51,6 +51,13 @@ def test_status_reports_data_source(client):
     assert "signal_count" in body
 
 
+def test_status_exposes_trading_calendar_fields(client):
+    """کلیدهای تقویم باید همیشه باشند، حتی وقتی شبکه نیست و مقدارشان None است."""
+    body = client.get("/api/status").json()
+    for key in ("today_jalali", "next_trading_day", "known_holidays"):
+        assert key in body
+
+
 def test_strategies_expose_defaults_and_current(client):
     body = client.get("/api/strategies").json()
     names = [s["name"] for s in body["strategies"]]

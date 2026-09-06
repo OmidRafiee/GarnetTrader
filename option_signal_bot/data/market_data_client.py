@@ -12,6 +12,10 @@ import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # فقط برای type hint؛ در زمان اجرا import نمی‌شود
+    from market.trading_calendar import TradingCalendar
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +56,10 @@ class MarketDataClient(ABC):
     #: برای برچسب‌زدن منبع داده روی هر سیگنال (mock در برابر واقعی)
     source_name: str = "unknown"
 
+    #: تقویم معاملاتی. اگر `bootstrap` یکی بسازد و اینجا بنشاند، تعطیلات
+    #: رسمی هم لحاظ می‌شوند؛ وگرنه به رفتار قدیمی (فقط آخرهفته) برمی‌گردد.
+    trading_calendar: "TradingCalendar | None" = None
+
     @abstractmethod
     def get_quote(self, symbol: str) -> Quote:
         """آخرین وضعیت قیمتی نماد پایه."""
@@ -61,8 +69,15 @@ class MarketDataClient(ABC):
         """تاریخچه کندل روزانه، مرتب‌شده از قدیم به جدید."""
 
     def is_market_open(self, now: datetime | None = None) -> bool:
-        """بازار تهران: شنبه تا چهارشنبه، ۰۹:۰۰ تا ۱۲:۳۰ (تقریبی، بدون تقویم تعطیلات)."""
+        """بازار تهران: شنبه تا چهارشنبه، ۰۹:۰۰ تا ۱۲:۳۰.
+
+        اگر `trading_calendar` نشانده شده باشد، تعطیلات رسمی هم اعمال
+        می‌شود؛ در غیر این صورت فقط تعطیلی هفتگی — که برای نبودِ تقویم،
+        محافظه‌کارانه‌ترین حدسِ ممکن است.
+        """
         now = now or datetime.now()
+        if self.trading_calendar is not None:
+            return self.trading_calendar.is_open(now)
         # weekday(): دوشنبه=0 ... شنبه=5، یکشنبه=6 → پنجشنبه(3) و جمعه(4) تعطیل
         if now.weekday() in (3, 4):
             return False

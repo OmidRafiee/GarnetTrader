@@ -73,6 +73,16 @@ def default_settings() -> dict[str, Any]:
             "timeout": 15,
             "retries": 3,
         },
+        # تقویم معاملاتی: تعطیلات را از تاریخچه‌ی **واقعی** یک نماد
+        # پرمعامله یاد می‌گیرد، نه از یک جدول دستیِ رو به کهنگی.
+        "trading_calendar": {
+            "learn_from_market": True,
+            "reference_symbol": "خودرو",
+            "learn_days": 365,
+            "cache_path": "var/trading_calendar.json",
+            # تعطیلی اضطراریِ اعلام‌شده که هنوز در تاریخچه نیامده (YYYY-MM-DD)
+            "extra_holidays": [],
+        },
         "backtest": {
             "history_days": 180,
             "horizon_days": 10,

@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field
 from bootstrap import create_app
 from config import force_utf8_stdio
 from config.loader import PROJECT_ROOT, deep_merge, load_settings, resolve_path, section
+from market.trading_calendar import format_jalali
 from signals.signal_model import Signal
 from storage.signal_log import SignalLog
 from strategies.registry import available_strategies, get_strategy_class
@@ -684,13 +685,30 @@ def get_status() -> dict[str, Any]:
         total = log.count()
 
     market_open: bool | None = None
+    today_jalali: str | None = None
+    next_trading_day: str | None = None
+    known_holidays: int | None = None
     try:
         context = create_app(settings, dry_run=False, as_json=False)
         try:
             market_open = context.market_data.is_market_open()
+            calendar = context.trading_calendar
+            if calendar is not None:
+                today = date.today()
+                today_jalali = format_jalali(today)
+                known_holidays = len(calendar.holidays)
+                # وقتی بازار بسته است، «کِی باز می‌شود» مفیدترین چیزی است
+                # که نوار وضعیت می‌تواند بگوید.
+                if not market_open:
+                    nxt = (
+                        today
+                        if calendar.is_trading_day(today)
+                        else calendar.next_trading_day(today)
+                    )
+                    next_trading_day = f"{nxt.isoformat()} ({format_jalali(nxt)})"
         finally:
             context.close()
-    except Exception as exc:  # noqa: BLE001 - نبود شبکه نباید داشبورد را بخواباند
+    except Exception as exc:  # نبود شبکه نباید داشبورد را بخواباند
         logger.warning("تشخیص وضعیت بازار ناموفق بود: %s", exc)
 
     return {
@@ -699,6 +717,9 @@ def get_status() -> dict[str, Any]:
         "market_data_provider": section(settings, "market_data").get("provider"),
         "option_chain_provider": section(settings, "option_chain").get("provider"),
         "settings_path": str(SETTINGS_PATH),
+        "today_jalali": today_jalali,
+        "next_trading_day": next_trading_day,
+        "known_holidays": known_holidays,
     }
 
 
