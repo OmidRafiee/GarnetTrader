@@ -33,6 +33,9 @@ class OptionContract:
     open_interest: int = 0
     volume: int = 0
     contract_size: int = DEFAULT_CONTRACT_SIZE
+    #: کد یکتای نماد در TSETMC — کلیدِ گرفتن عمق مظنه برای همین قرارداد.
+    #: خالی می‌ماند اگر منبع آن را ندهد؛ آن‌وقت فقط عمق در دسترس نیست.
+    ins_code: str = ""
 
     @property
     def mid_price(self) -> float | None:

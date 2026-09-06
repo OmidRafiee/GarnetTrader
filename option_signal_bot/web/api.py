@@ -309,6 +309,45 @@ def update_risk(update: RiskUpdate) -> dict[str, Any]:
     return {"ok": True, "applied": patch}
 
 
+def _attach_depth(structures: dict[str, list[dict[str, Any]]]) -> None:
+    """عمق مظنه‌ی هر پایه را به نقشه‌ی سفارش اضافه می‌کند (درجا).
+
+    این جواب سؤالی است که مظنه‌ی تک‌سطحی نمی‌تواند بدهد: «اگر این حجم را
+    بزنم، واقعاً چقدر پر می‌شود و با چه لغزشی؟» یک ساختار که روی کاغذ
+    سودده است ولی پایه‌اش فقط ۱ قرارداد عمق دارد، اجرا نمی‌شود.
+
+    خطا اینجا کشنده نیست: عمق یک افزونه است، و نبودش نباید کل اسکن را
+    بی‌نتیجه کند. پایه‌ی بدون عمق فقط `depth: null` می‌گیرد.
+    """
+    from data.order_book import OrderBookClient
+
+    client = OrderBookClient()
+    for found in structures.values():
+        for structure in found:
+            for leg in structure.get("legs") or []:
+                ins_code = leg.get("ins_code")
+                quantity = int(leg.get("quantity") or 0)
+                if not ins_code or quantity <= 0:
+                    leg["depth"] = None
+                    continue
+
+                book = client.try_get_order_book(ins_code, leg.get("symbol", ""))
+                if book is None:
+                    leg["depth"] = None
+                    continue
+
+                side = "buy" if leg.get("action") == "BUY" else "sell"
+                avg, filled = book.fill_price(side, quantity)
+                leg["depth"] = {
+                    "levels": len(book.asks if side == "buy" else book.bids),
+                    "available": book.depth(side),
+                    "fill_price": avg,
+                    "filled_quantity": filled,
+                    "fully_fillable": filled >= quantity,
+                    "slippage": book.slippage(side, quantity),
+                }
+
+
 @app.get("/api/structures")
 async def scan_structures(
     underlying: str,
@@ -316,8 +355,13 @@ async def scan_structures(
     limit: int = 10,
     rank_by: str = "roi",
     min_open_interest: int = 50,
+    with_depth: bool = False,
 ) -> dict[str, Any]:
     """اسکن ساختارهای چندپایه روی زنجیره‌ی **واقعی**.
+
+    `with_depth=true` عمق مظنه‌ی هر پایه را هم می‌گیرد و می‌گوید سفارش
+    واقعاً به چه قیمتی پر می‌شود. عمداً پیش‌فرض خاموش است: هر پایه یک
+    درخواست جداگانه به TSETMC می‌خورد.
 
     ⚠️ خروجی فقط تحلیل و نقشه‌ی سفارش است؛ هیچ سفارشی ثبت نمی‌شود.
     """
@@ -357,10 +401,15 @@ async def scan_structures(
         for name, fn in wanted.items():
             found = rank_strategies(fn(chain, limit=limit * 3), rank_by)[:limit]
             result[name] = [s.to_dict() for s in found]
+
+        if with_depth:
+            _attach_depth(result)
+
         return {
             "underlying": underlying,
             "spot_price": chain.spot_price,
             "ranked_by": rank_by,
+            "with_depth": with_depth,
             "structures": result,
         }
 

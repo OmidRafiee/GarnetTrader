@@ -302,6 +302,7 @@ class TsetmcOptionChainClient(OptionChainClient):
             open_interest=int(row.get(f"oP_{side}") or 0),
             volume=int(row.get(f"qTotTran5J_{side}") or 0),
             contract_size=int(row.get("contractSize") or DEFAULT_CONTRACT_SIZE),
+            ins_code=str(row.get(f"insCode_{side}") or "").strip(),
         )
 
     def _accept(

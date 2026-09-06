@@ -54,6 +54,8 @@ class PositionLeg:
     ask: float | None = None
     open_interest: int = 0
     volume: int = 0
+    #: کد یکتای TSETMC — برای گرفتن عمق مظنه‌ی همین پایه
+    ins_code: str = ""
 
     @property
     def is_long(self) -> bool:
@@ -417,6 +419,7 @@ class StrategyPayoff:
                 "contract_size": leg.contract_size,
                 "limit_price": leg.entry_price,
                 "role": leg.role,
+                "ins_code": leg.ins_code,
             }
             for leg in self.legs
         ]
@@ -498,6 +501,7 @@ def leg_from_contract(
         ask=contract.ask,
         open_interest=contract.open_interest,
         volume=contract.volume,
+        ins_code=contract.ins_code,
     )
 
 

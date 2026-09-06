@@ -783,6 +783,17 @@ $("#btn-save-ds").addEventListener("click", async () => {
   }
 });
 
+// نمایش خلاصه‌ی عمق: مهم‌ترین خبر این است که سفارش اصلاً پر می‌شود یا نه.
+function depthLabel(depth) {
+  if (!depth) return "—";
+  if (!depth.fully_fillable) {
+    return `فقط ${fmt(depth.filled_quantity)} از ${fmt(depth.available)} ⚠`;
+  }
+  const slip = depth.slippage === null || depth.slippage === undefined
+    ? "" : ` (لغزش ${fmt(depth.slippage * 100, 2)}٪)`;
+  return `${fmt(depth.available)} قرارداد${slip}`;
+}
+
 // ------------------------------------------------------------------ structures
 const KIND_LABEL = {
   long_straddle: "لانگ استردل",
@@ -849,6 +860,7 @@ $("#btn-scan-structures").addEventListener("click", async () => {
       rank_by: $("#st-rank").value,
       min_open_interest: $("#st-oi").value || "50",
       limit: "8",
+      with_depth: $("#st-depth").checked ? "true" : "false",
     });
     const d = await api("/api/structures?" + params);
     box.innerHTML = "";
@@ -918,16 +930,23 @@ function structureCard(s) {
   // نقشه سفارش
   const plan = el("div", "table-wrap");
   plan.style.marginTop = "8px";
-  const rows = (s.legs || []).map((leg) => [
-    leg.action === "BUY" ? "خرید" : "فروش",
-    leg.instrument === "UNDERLYING" ? "سهم پایه" : leg.instrument,
-    leg.strike !== null && leg.strike !== undefined ? fmt(leg.strike) : "—",
-    fmt(leg.quantity),
-    fmt(leg.limit_price),
-    leg.role || "",
-  ]);
-  plan.append(buildTable(
-    ["عمل", "ابزار", "استرایک", "تعداد", "قیمت حد", "نقش"], rows));
+  // ستون عمق فقط وقتی می‌آید که واقعاً خوانده شده باشد
+  const hasDepth = (s.legs || []).some((leg) => leg.depth);
+  const rows = (s.legs || []).map((leg) => {
+    const row = [
+      leg.action === "BUY" ? "خرید" : "فروش",
+      leg.instrument === "UNDERLYING" ? "سهم پایه" : leg.instrument,
+      leg.strike !== null && leg.strike !== undefined ? fmt(leg.strike) : "—",
+      fmt(leg.quantity),
+      fmt(leg.limit_price),
+      leg.role || "",
+    ];
+    if (hasDepth) row.push(depthLabel(leg.depth));
+    return row;
+  });
+  const headers = ["عمل", "ابزار", "استرایک", "تعداد", "قیمت حد", "نقش"];
+  if (hasDepth) headers.push("عمق / پر شدن");
+  plan.append(buildTable(headers, rows));
   card.append(plan);
   return card;
 }
