@@ -30,6 +30,7 @@
   <button class="tab" data-tab="strategies">استراتژی‌ها</button>
   <button class="tab" data-tab="symbols">نمادها</button>
   <button class="tab" data-tab="risk">ریسک</button>
+  <button class="tab" data-tab="structures">ساختارها</button>
   <button class="tab" data-tab="report">گزارش</button>
   <button class="tab" data-tab="account">حساب</button>
 </nav>
@@ -126,6 +127,31 @@
         <span class="note" id="risk-note"></span>
       </div>
     </div>
+  </section>
+
+  <!-- ================= ساختارها ================= -->
+  <section class="panel" id="panel-structures">
+    <p class="hint">
+      اسکن ساختارهای چندپایه روی زنجیره واقعی.
+      <strong>فقط تحلیل و نقشه سفارش</strong> — هیچ سفارشی ثبت نمی‌شود.
+    </p>
+    <div class="toolbar">
+      <select id="st-underlying"></select>
+      <select id="st-kind">
+        <option value="all">همه ساختارها</option>
+        <option value="long_straddle">لانگ استردل</option>
+        <option value="collar">کالر</option>
+        <option value="iron_condor">آیرون کاندور</option>
+      </select>
+      <select id="st-rank"></select>
+      <button class="btn btn-primary" id="btn-scan-structures">اسکن</button>
+      <span class="spacer"></span>
+      <label class="note">
+        حداقل موقعیت باز
+        <input type="number" id="st-oi" value="50" min="0" style="width:80px">
+      </label>
+    </div>
+    <div id="structures"><p class="empty">نماد را انتخاب و «اسکن» را بزنید.</p></div>
   </section>
 
   <!-- ================= گزارش ================= -->

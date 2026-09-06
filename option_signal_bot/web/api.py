@@ -308,6 +308,82 @@ def update_risk(update: RiskUpdate) -> dict[str, Any]:
     return {"ok": True, "applied": patch}
 
 
+@app.get("/api/structures")
+async def scan_structures(
+    underlying: str,
+    kind: str = "all",
+    limit: int = 10,
+    rank_by: str = "roi",
+    min_open_interest: int = 50,
+) -> dict[str, Any]:
+    """اسکن ساختارهای چندپایه روی زنجیره‌ی **واقعی**.
+
+    ⚠️ خروجی فقط تحلیل و نقشه‌ی سفارش است؛ هیچ سفارشی ثبت نمی‌شود.
+    """
+    from strategies.scanner import RANK_KEYS, ScanFilters, StrategyScanner, rank_strategies
+
+    if rank_by not in RANK_KEYS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"معیار ناشناخته: «{rank_by}». موجود: {', '.join(sorted(RANK_KEYS))}",
+        )
+
+    settings = _settings()
+
+    def _work() -> dict[str, Any]:
+        context = create_app(settings, dry_run=True, as_json=False)
+        try:
+            chain = context.option_chain.get_chain(underlying)
+        finally:
+            context.close()
+
+        scanner = StrategyScanner(
+            ScanFilters(min_open_interest=min_open_interest)
+        )
+        scans = {
+            "long_straddle": scanner.scan_long_straddle,
+            "collar": scanner.scan_collar,
+            "iron_condor": scanner.scan_iron_condor,
+        }
+        wanted = scans if kind == "all" else {kind: scans.get(kind)}
+        if None in wanted.values():
+            raise HTTPException(
+                status_code=400,
+                detail=f"ساختار ناشناخته: «{kind}». موجود: {', '.join(scans)}, all",
+            )
+
+        result = {}
+        for name, fn in wanted.items():
+            found = rank_strategies(fn(chain, limit=limit * 3), rank_by)[:limit]
+            result[name] = [s.to_dict() for s in found]
+        return {
+            "underlying": underlying,
+            "spot_price": chain.spot_price,
+            "ranked_by": rank_by,
+            "structures": result,
+        }
+
+    try:
+        return await asyncio.to_thread(_work)
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001 - پیام به UI می‌رود
+        logger.exception("اسکن ساختارها ناموفق بود.")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/structures/rank-keys")
+def get_rank_keys() -> dict[str, Any]:
+    """معیارهای قابل استفاده برای مرتب‌سازی."""
+    from strategies.scanner import RANK_KEYS
+
+    return {
+        "keys": [
+            {"key": k, "bigger_is_better": v} for k, v in sorted(RANK_KEYS.items())
+        ]
+    }
+
+
 @app.get("/api/report")
 def get_report(days: int | None = None) -> dict[str, Any]:
     """گزارش عملکرد سیگنال‌ها.

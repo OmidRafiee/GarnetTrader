@@ -76,12 +76,92 @@ class SignalGenerator:
                 logger.exception("استراتژی %s روی %s خطا داد.", strategy.name, symbol)
                 continue
 
-            for signal in raw_signals:
-                final = self._post_process(signal)
-                if final is not None:
-                    collected.append(final)
-                    logger.info("سیگنال صادر شد: %s", final.summary())
+            collected.extend(self._process_batch(raw_signals))
         return collected
+
+    def _process_batch(self, raw_signals: list[Signal]) -> list[Signal]:
+        """پردازش خروجی یک استراتژی، با احترام به گروه‌های چندپایه.
+
+        سیگنال‌های تک‌پایه مستقل پردازش می‌شوند. ولی پایه‌های یک ساختار
+        چندپایه باید **با هم** قبول یا رد شوند: اگر یک پایه‌ی استردل رد
+        شود و دیگری بماند، نتیجه یک کال تنهاست که پروفایل ریسکش کاملاً
+        فرق دارد.
+        """
+        singles: list[Signal] = []
+        groups: dict[str, list[Signal]] = {}
+
+        for signal in raw_signals:
+            group_id = signal.metadata.get("leg_group_id")
+            if group_id:
+                groups.setdefault(str(group_id), []).append(signal)
+            else:
+                singles.append(signal)
+
+        result: list[Signal] = []
+        for signal in singles:
+            final = self._post_process(signal)
+            if final is not None:
+                result.append(final)
+                logger.info("سیگنال صادر شد: %s", final.summary())
+
+        for group_id, legs in groups.items():
+            accepted = self._process_leg_group(group_id, legs)
+            result.extend(accepted)
+        return result
+
+    def _process_leg_group(self, group_id: str, legs: list[Signal]) -> list[Signal]:
+        """یک گروه چندپایه را **اتمی** پردازش می‌کند."""
+        expected = int(legs[0].metadata.get("leg_count", len(legs)))
+        if len(legs) != expected:
+            logger.warning(
+                "گروه %s ناقص است (%s از %s پایه)؛ کل ساختار رد شد.",
+                group_id, len(legs), expected,
+            )
+            return []
+
+        sized: list[Signal] = []
+        for leg in legs:
+            final = self._post_process(leg, allow_dedupe=False)
+            if final is None:
+                logger.info(
+                    "پایه %s از ساختار %s رد شد؛ کل ساختار صرف‌نظر شد "
+                    "(اجرای ناقص بدتر از اجرا نکردن است).",
+                    leg.symbol, legs[0].strategy_name,
+                )
+                return []
+            sized.append(final)
+
+        # همه‌ی پایه‌ها باید تعداد یکسان (× نسبت) داشته باشند، وگرنه
+        # ساختار چیز دیگری است. کمینه تعیین‌کننده است.
+        base_qty = min(
+            s.suggested_qty // max(int(s.metadata.get("leg_ratio", 1)), 1) for s in sized
+        )
+        if base_qty <= 0:
+            logger.info(
+                "ساختار %s با حدود ریسک جا نشد (تعداد پایه صفر شد).",
+                legs[0].strategy_name,
+            )
+            return []
+
+        for signal in sized:
+            signal.suggested_qty = base_qty * int(signal.metadata.get("leg_ratio", 1))
+
+        # حذف تکراری روی **کل ساختار** انجام می‌شود، نه تک‌تک پایه‌ها
+        key = self._group_dedupe_key(sized)
+        if self._is_duplicate_key(key, sized[0].created_at):
+            logger.debug("ساختار تکراری %s نادیده گرفته شد.", sized[0].strategy_name)
+            return []
+        self._last_emitted[key] = sized[0].created_at
+
+        for signal in sized:
+            logger.info("سیگنال صادر شد: %s", signal.summary())
+        return sized
+
+    @staticmethod
+    def _group_dedupe_key(legs: list[Signal]) -> str:
+        """کلید حذف تکراری برای یک ساختار چندپایه."""
+        parts = sorted(f"{s.symbol}:{s.side.value}:{s.strike}" for s in legs)
+        return "|".join([legs[0].strategy_name, "GROUP", *parts])
 
     @property
     def data_source(self) -> str:
@@ -106,8 +186,14 @@ class SignalGenerator:
         )
 
     # ------------------------------------------------------------------
-    def _post_process(self, signal: Signal) -> Signal | None:
-        """اعمال فیلتر اعتماد، محاسبه ریسک و حذف تکراری‌ها."""
+    def _post_process(
+        self, signal: Signal, allow_dedupe: bool = True
+    ) -> Signal | None:
+        """اعمال فیلتر اعتماد، محاسبه ریسک و حذف تکراری‌ها.
+
+        `allow_dedupe=False` برای پایه‌های چندپایه است: حذف تکراری آنجا
+        روی کل ساختار انجام می‌شود، نه تک‌تک پایه‌ها.
+        """
         min_conf = self.config.min_confidence
         if min_conf is not None and (signal.confidence or 0.0) < min_conf:
             logger.debug("سیگنال %s به‌دلیل اعتماد کم رد شد.", signal.symbol)
@@ -123,10 +209,11 @@ class SignalGenerator:
             minutes=self.config.signal_validity_minutes
         )
 
-        if self._is_duplicate(sized):
-            logger.debug("سیگنال تکراری %s نادیده گرفته شد.", sized.symbol)
-            return None
-        self._last_emitted[self._dedupe_key(sized)] = sized.created_at
+        if allow_dedupe:
+            if self._is_duplicate(sized):
+                logger.debug("سیگنال تکراری %s نادیده گرفته شد.", sized.symbol)
+                return None
+            self._last_emitted[self._dedupe_key(sized)] = sized.created_at
         return sized
 
     @staticmethod
@@ -134,6 +221,12 @@ class SignalGenerator:
         return "|".join(
             [signal.strategy_name, signal.symbol, signal.side.value, str(signal.strike)]
         )
+
+    def _is_duplicate_key(self, key: str, now) -> bool:
+        """بررسی تکراری بودن با یک کلید دلخواه (تک‌پایه یا گروه)."""
+        window = timedelta(minutes=self.config.dedupe_window_minutes)
+        previous = self._last_emitted.get(key)
+        return previous is not None and (now - previous) < window
 
     def _is_duplicate(self, signal: Signal) -> bool:
         window = timedelta(minutes=self.config.dedupe_window_minutes)

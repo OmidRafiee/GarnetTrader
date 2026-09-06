@@ -55,6 +55,7 @@ $("#tabs").addEventListener("click", (e) => {
   if (btn.dataset.tab === "risk") loadRisk();
   if (btn.dataset.tab === "account") { loadBrokerSetup(); loadAccount(); }
   if (btn.dataset.tab === "report") loadReport();
+  if (btn.dataset.tab === "structures") initStructures();
 });
 
 // ------------------------------------------------------------------ status
@@ -770,6 +771,155 @@ $("#btn-save-ds").addEventListener("click", async () => {
     note.textContent = err.message;
   }
 });
+
+// ------------------------------------------------------------------ structures
+const KIND_LABEL = {
+  long_straddle: "لانگ استردل",
+  collar: "کالر",
+  iron_condor: "آیرون کاندور",
+};
+
+const money = (v) => (v === null || v === undefined ? "نامحدود" : fmt(v));
+
+async function initStructures() {
+  // نمادها از همان لیست تحت رصد
+  try {
+    const d = await api("/api/symbols");
+    const sel = $("#st-underlying");
+    if (!sel.options.length) {
+      (d.watched || []).forEach((s) => {
+        const o = el("option", "", s);
+        o.value = s;
+        sel.append(o);
+      });
+    }
+  } catch { /* تب خودش خطا را نشان می‌دهد */ }
+
+  try {
+    const d = await api("/api/structures/rank-keys");
+    const sel = $("#st-rank");
+    if (!sel.options.length) {
+      const labels = {
+        roi: "ROI", max_profit: "حداکثر سود", max_loss: "حداکثر زیان",
+        risk_reward: "ریسک/ریوارد", liquidity_score: "نقدشوندگی",
+        min_open_interest: "موقعیت باز", max_relative_spread: "اسپرد",
+        distance_to_breakeven: "فاصله تا سربه‌سر", net_credit: "اعتبار خالص",
+        required_capital: "سرمایه لازم",
+      };
+      d.keys.forEach((k) => {
+        const o = el("option", "", labels[k.key] || k.key);
+        o.value = k.key;
+        sel.append(o);
+      });
+      sel.value = "roi";
+    }
+  } catch { /* ignore */ }
+}
+
+$("#btn-scan-structures").addEventListener("click", async () => {
+  const box = $("#structures");
+  const btn = $("#btn-scan-structures");
+  const underlying = $("#st-underlying").value;
+  if (!underlying) {
+    box.innerHTML = "";
+    box.append(el("div", "error", "اول یک نماد انتخاب کنید."));
+    return;
+  }
+
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spin"></span>در حال اسکن…';
+  box.innerHTML = '<p class="empty">در حال خواندن زنجیره اختیار…</p>';
+
+  try {
+    const params = new URLSearchParams({
+      underlying,
+      kind: $("#st-kind").value,
+      rank_by: $("#st-rank").value,
+      min_open_interest: $("#st-oi").value || "50",
+      limit: "8",
+    });
+    const d = await api("/api/structures?" + params);
+    box.innerHTML = "";
+
+    const head = el("div", "hint");
+    head.textContent =
+      `${d.underlying} @ ${fmt(d.spot_price)} — مرتب بر اساس ${$("#st-rank").selectedOptions[0].text}`;
+    box.append(head);
+
+    let total = 0;
+    Object.entries(d.structures).forEach(([kind, items]) => {
+      if (!items.length) return;
+      total += items.length;
+      const section = el("div", "card");
+      section.append(el("h3", "", `${KIND_LABEL[kind] || kind} (${items.length})`));
+      items.forEach((s) => section.append(structureCard(s)));
+      box.append(section);
+    });
+
+    if (!total) {
+      box.append(el("p", "empty",
+        "ساختار معتبری پیدا نشد. شاید حداقل موقعیت باز را کم کنید."));
+    }
+  } catch (err) {
+    box.innerHTML = "";
+    box.append(el("div", "error", "اسکن ناموفق بود: " + err.message));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+  }
+});
+
+function structureCard(s) {
+  const card = el("div", "sig");
+  card.style.marginTop = "10px";
+
+  const head = el("div", "sig-head");
+  head.append(el("span", "sig-sym", KIND_LABEL[s.strategy_type] || s.strategy_type));
+  if (s.expiration) head.append(el("span", "sig-strategy", "سررسید " + s.expiration));
+  if (s.has_leg_risk) {
+    const warn = el("span", "chip chip-warn", "ریسک اجرای ناقص");
+    warn.title = "کارگزاری سفارش چندپایه اتمیک ندارد؛ پایه‌ها جدا ثبت می‌شوند.";
+    head.append(warn);
+  }
+  card.append(head);
+
+  const grid = el("div", "sig-grid");
+  const cell = (k, v, cls) => {
+    const d = el("div");
+    d.append(el("span", "k", k));
+    d.append(el("span", "v " + (cls || ""), v));
+    return d;
+  };
+  grid.append(cell("حداکثر سود", money(s.max_profit), "v-gain"));
+  grid.append(cell("حداکثر زیان", money(s.max_loss), "v-loss"));
+  grid.append(cell("ROI", s.roi !== null ? fmt(s.roi * 100, 1) + "٪" : "—"));
+  grid.append(cell("ریسک/ریوارد", s.risk_reward !== null ? fmt(s.risk_reward, 2) : "—"));
+  grid.append(cell("سرمایه لازم", money(s.required_capital)));
+  grid.append(cell("سربه‌سر", (s.breakevens || []).map((b) => fmt(b)).join(" — ") || "—"));
+  if (s.net_credit) grid.append(cell("اعتبار خالص", fmt(s.net_credit), "v-gain"));
+  if (s.liquidity_score !== null) {
+    grid.append(cell("نقدشوندگی", fmt(s.liquidity_score * 100, 0) + "٪"));
+  }
+  grid.append(cell("موقعیت باز", fmt(s.min_open_interest)));
+  card.append(grid);
+
+  // نقشه سفارش
+  const plan = el("div", "table-wrap");
+  plan.style.marginTop = "8px";
+  const rows = (s.legs || []).map((leg) => [
+    leg.action === "BUY" ? "خرید" : "فروش",
+    leg.instrument === "UNDERLYING" ? "سهم پایه" : leg.instrument,
+    leg.strike !== null && leg.strike !== undefined ? fmt(leg.strike) : "—",
+    fmt(leg.quantity),
+    fmt(leg.limit_price),
+    leg.role || "",
+  ]);
+  plan.append(buildTable(
+    ["عمل", "ابزار", "استرایک", "تعداد", "قیمت حد", "نقش"], rows));
+  card.append(plan);
+  return card;
+}
 
 // ------------------------------------------------------------------ boot
 loadStatus();
