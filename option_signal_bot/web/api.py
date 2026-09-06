@@ -418,10 +418,97 @@ def export_report(days: int | None = None) -> FileResponse:
     )
 
 
+class DataSourceUpdate(BaseModel):
+    market_data_provider: str | None = None
+    option_chain_provider: str | None = None
+    enrich_with_broker: bool | None = None
+    enrich_limit: int | None = None
+
+
 class BrokerUpdate(BaseModel):
     enabled: bool | None = None
     token: str | None = None
     session_file: str | None = None
+
+
+@app.get("/api/datasource")
+def get_datasource() -> dict[str, Any]:
+    """منبع داده‌ی فعلی و گزینه‌های موجود."""
+    import bootstrap
+
+    settings = _settings()
+    market = section(settings, "market_data")
+    chain = section(settings, "option_chain")
+    return {
+        "market_data_provider": market.get("provider"),
+        "option_chain_provider": chain.get("provider"),
+        "enrich_with_broker": bool(chain.get("enrich_with_broker")),
+        "enrich_limit": chain.get("enrich_limit", 20),
+        "available_market_data": sorted(bootstrap.MARKET_DATA_PROVIDERS),
+        "available_option_chain": sorted(bootstrap.OPTION_CHAIN_PROVIDERS),
+        "broker_enabled": bool(section(settings, "broker").get("enabled")),
+    }
+
+
+@app.put("/api/datasource")
+def update_datasource(update: DataSourceUpdate) -> dict[str, Any]:
+    """تغییر منبع داده از پنل.
+
+    ⚠️ ایزی‌تریدر گزینه‌ی زنجیره نیست: مشخصات قرارداد را فقط تک‌به‌تک
+    می‌دهد (~۱۳۸۶ درخواست برای کل بازار). به‌جایش `enrich_with_broker`
+    را روشن کنید تا روی زنجیره‌ی TSETMC سوار شود.
+    """
+    import bootstrap
+
+    market_patch: dict[str, Any] = {}
+    chain_patch: dict[str, Any] = {}
+
+    if update.market_data_provider is not None:
+        name = update.market_data_provider.strip().lower()
+        if name not in bootstrap.MARKET_DATA_PROVIDERS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"provider ناشناخته: «{name}». "
+                f"موجود: {', '.join(sorted(bootstrap.MARKET_DATA_PROVIDERS))}",
+            )
+        market_patch["provider"] = name
+
+    if update.option_chain_provider is not None:
+        name = update.option_chain_provider.strip().lower()
+        if name not in bootstrap.OPTION_CHAIN_PROVIDERS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"provider ناشناخته: «{name}». "
+                f"موجود: {', '.join(sorted(bootstrap.OPTION_CHAIN_PROVIDERS))}",
+            )
+        chain_patch["provider"] = name
+
+    if update.enrich_with_broker is not None:
+        if update.enrich_with_broker and not section(_settings(), "broker").get("enabled"):
+            raise HTTPException(
+                status_code=400,
+                detail="برای غنی‌سازی، اول اتصال کارگزاری را در تب «حساب» فعال کنید.",
+            )
+        chain_patch["enrich_with_broker"] = update.enrich_with_broker
+
+    if update.enrich_limit is not None:
+        if not 0 <= update.enrich_limit <= 200:
+            raise HTTPException(
+                status_code=400,
+                detail="enrich_limit باید بین ۰ تا ۲۰۰ باشد؛ هر واحد یک درخواست شبکه است.",
+            )
+        chain_patch["enrich_limit"] = update.enrich_limit
+
+    if not market_patch and not chain_patch:
+        raise HTTPException(status_code=400, detail="هیچ مقداری برای تغییر داده نشد.")
+
+    patch: dict[str, Any] = {}
+    if market_patch:
+        patch["market_data"] = market_patch
+    if chain_patch:
+        patch["option_chain"] = chain_patch
+    _patch_settings(patch)
+    return {"ok": True, "applied": patch}
 
 
 @app.put("/api/broker")

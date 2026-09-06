@@ -39,7 +39,14 @@ def default_settings() -> dict[str, Any]:
             "history_days": 90,
             "risk_free_rate": 0.25,
         },
-        "option_chain": {"provider": "tsetmc"},
+        "option_chain": {
+            "provider": "tsetmc",
+            # غنی‌سازی با داده‌ی کارگزاری (وجه تضمین، اندازه‌ی دقیق قرارداد).
+            # ایزی‌تریدر مشخصات را فقط تک‌به‌تک می‌دهد، پس فقط چند قرارداد
+            # نزدیک به قیمت پایه غنی می‌شوند، نه کل بازار.
+            "enrich_with_broker": False,
+            "enrich_limit": 20,
+        },
         "signals": {
             "validity_minutes": 30,
             "dedupe_window_minutes": 60,

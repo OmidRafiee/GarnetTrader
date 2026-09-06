@@ -51,7 +51,7 @@ $("#tabs").addEventListener("click", (e) => {
   btn.classList.add("active");
   $("#panel-" + btn.dataset.tab).classList.add("active");
   if (btn.dataset.tab === "strategies") loadStrategies();
-  if (btn.dataset.tab === "symbols") loadSymbols();
+  if (btn.dataset.tab === "symbols") { loadDataSource(); loadSymbols(); }
   if (btn.dataset.tab === "risk") loadRisk();
   if (btn.dataset.tab === "account") { loadBrokerSetup(); loadAccount(); }
   if (btn.dataset.tab === "report") loadReport();
@@ -709,6 +709,62 @@ $("#btn-save-broker").addEventListener("click", async () => {
     $("#broker-token").value = "";  // توکن در فرم نمی‌ماند
     toast("تنظیمات کارگزاری ذخیره شد.", "ok");
     await loadAccount();
+  } catch (err) {
+    note.className = "note bad";
+    note.textContent = err.message;
+  }
+});
+
+// ------------------------------------------------------------------ data source
+async function loadDataSource() {
+  try {
+    const d = await api("/api/datasource");
+    const fill = (sel, options, current) => {
+      sel.innerHTML = "";
+      options.forEach((o) => {
+        const opt = el("option", "", o);
+        opt.value = o;
+        sel.append(opt);
+      });
+      sel.value = current;
+    };
+    fill($("#ds-market"), d.available_market_data, d.market_data_provider);
+    fill($("#ds-chain"), d.available_option_chain, d.option_chain_provider);
+    $("#ds-enrich").checked = d.enrich_with_broker;
+    $("#ds-enrich").disabled = !d.broker_enabled;
+    $("#ds-limit").value = d.enrich_limit;
+
+    const note = $("#ds-note");
+    if (!d.broker_enabled) {
+      note.className = "note";
+      note.textContent = "برای غنی‌سازی، اول در تب «حساب» اتصال کارگزاری را فعال کنید.";
+    } else {
+      note.textContent = "";
+    }
+  } catch (err) {
+    $("#ds-note").className = "note bad";
+    $("#ds-note").textContent = err.message;
+  }
+}
+
+$("#btn-save-ds").addEventListener("click", async () => {
+  const note = $("#ds-note");
+  note.className = "note";
+  note.textContent = "در حال ذخیره…";
+  try {
+    await api("/api/datasource", {
+      method: "PUT",
+      body: JSON.stringify({
+        market_data_provider: $("#ds-market").value,
+        option_chain_provider: $("#ds-chain").value,
+        enrich_with_broker: $("#ds-enrich").checked,
+        enrich_limit: Number($("#ds-limit").value),
+      }),
+    });
+    note.className = "note ok";
+    note.textContent = "ذخیره شد؛ از پاس بعدی اعمال می‌شود.";
+    toast("منبع داده ذخیره شد.", "ok");
+    loadStatus();
   } catch (err) {
     note.className = "note bad";
     note.textContent = err.message;

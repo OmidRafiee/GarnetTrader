@@ -155,6 +155,38 @@ def build_market_data(settings: dict[str, Any]) -> MarketDataClient:
     return _pick(MARKET_DATA_PROVIDERS, provider, "provider داده بازار")(config)
 
 
+def build_account_source(settings: dict[str, Any]):
+    """آداپتر کارگزاری، اگر در تنظیمات فعال باشد — وگرنه `None`.
+
+    شکست اینجا **خطا نمی‌دهد**: نبودِ داده‌ی حساب نباید کل ربات را
+    بخواباند، چون سیگنال‌دهی به آن وابسته نیست. فقط لاگ هشدار می‌دهد.
+    """
+    broker = section(settings, "broker")
+    if not broker.get("enabled"):
+        return None
+
+    try:
+        from brokers.emofid import EmofidAccountClient
+
+        common = {
+            "base_url": broker.get("base_url", "https://api-mts.orbis.easytrader.ir"),
+            "timeout": broker.get("timeout", 15),
+            "retries": broker.get("retries", 3),
+        }
+        token = (broker.get("token") or "").strip()
+        if token:
+            return EmofidAccountClient(token=token, **common)
+        return EmofidAccountClient.from_session_file(
+            resolve_path(broker.get("session_file", "var/emofid/session.json")),
+            **common,
+        )
+    except Exception as exc:  # noqa: BLE001 - نبود حساب نباید ربات را بخواباند
+        logger.warning(
+            "اتصال به کارگزاری برقرار نشد؛ ربات بدون داده‌ی حساب ادامه می‌دهد: %s", exc
+        )
+        return None
+
+
 def build_option_chain(
     settings: dict[str, Any], market_data: MarketDataClient
 ) -> OptionChainClient:
@@ -162,7 +194,27 @@ def build_option_chain(
     provider = config.get("provider", "tsetmc")
     risk_free_rate = section(settings, "market_data").get("risk_free_rate", 0.25)
     builder = _pick(OPTION_CHAIN_PROVIDERS, provider, "provider زنجیره آپشن")
-    return builder(config, market_data, risk_free_rate)
+    chain = builder(config, market_data, risk_free_rate)
+
+    # غنی‌سازی با داده‌ی کارگزاری، اگر خواسته شده باشد.
+    # عمداً *روی* منبع انتخاب‌شده می‌نشیند، نه به‌جایش: ایزی‌تریدر
+    # مشخصات قرارداد را فقط تک‌به‌تک می‌دهد (~۱۳۸۶ درخواست برای کل
+    # بازار)، پس نمی‌تواند منبع زنجیره باشد — ولی برای چند قرارداد
+    # نزدیک به قیمت پایه، معتبرترین منبع است.
+    if config.get("enrich_with_broker"):
+        from data.enriched_option_chain import BrokerEnrichedOptionChain
+
+        account = build_account_source(settings)
+        if account is None:
+            logger.warning(
+                "enrich_with_broker روشن است ولی کارگزاری در دسترس نیست؛ "
+                "زنجیره بدون غنی‌سازی استفاده می‌شود."
+            )
+        else:
+            chain = BrokerEnrichedOptionChain(
+                chain, account, enrich_limit=config.get("enrich_limit", 20)
+            )
+    return chain
 
 
 def build_risk_calculator(settings: dict[str, Any]) -> RiskCalculator:

@@ -63,6 +63,39 @@
       نمادهای پایه‌ای که ربات رصد می‌کند. لیست سمت راست از بازار زنده می‌آید و
       فقط نمادهایی را نشان می‌دهد که واقعاً آپشن دارند.
     </p>
+    <div class="card card-narrow" id="datasource-card">
+      <h3>منبع داده</h3>
+      <div class="params">
+        <div class="field">
+          <label>قیمت نماد پایه</label>
+          <select id="ds-market"></select>
+        </div>
+        <div class="field">
+          <label>زنجیره اختیار</label>
+          <select id="ds-chain"></select>
+        </div>
+      </div>
+      <div class="field" style="margin-top:11px">
+        <label>
+          <input type="checkbox" id="ds-enrich" style="width:auto;margin-inline-end:6px">
+          غنی‌سازی با داده کارگزاری (وجه تضمین و اندازه دقیق قرارداد)
+        </label>
+        <span class="dflt">
+          ایزی‌تریدر مشخصات قرارداد را فقط تک‌به‌تک می‌دهد، پس فقط چند قرارداد
+          نزدیک به قیمت پایه غنی می‌شوند — نه کل بازار.
+        </span>
+      </div>
+      <div class="field" style="margin-top:8px;max-width:220px">
+        <label>تعداد قرارداد برای غنی‌سازی</label>
+        <input type="number" id="ds-limit" min="0" max="200">
+        <span class="dflt">هر واحد = یک درخواست شبکه در هر پاس</span>
+      </div>
+      <div class="card-actions">
+        <button class="btn btn-primary" id="btn-save-ds">ذخیره</button>
+        <span class="note" id="ds-note"></span>
+      </div>
+    </div>
+
     <div class="two-col">
       <div class="card">
         <h3>تحت رصد <span class="count" id="watched-count"></span></h3>

@@ -210,3 +210,65 @@ def test_web_layer_cannot_reach_execution():
     source = Path(importlib.import_module("web.api").__file__).read_text(encoding="utf-8")
     assert "import execution" not in source
     assert "from execution" not in source
+
+# ----------------------------------------------------------------------
+# انتخاب منبع داده
+# ----------------------------------------------------------------------
+def test_datasource_lists_only_real_providers(client):
+    body = client.get("/api/datasource").json()
+    assert "tsetmc" in body["available_market_data"]
+    assert "tsetmc" in body["available_option_chain"]
+    # داده‌ی ساختگی حذف شده؛ نباید در گزینه‌ها باشد
+    assert "mock" not in body["available_market_data"]
+    assert "mock" not in body["available_option_chain"]
+
+
+def test_datasource_change_round_trips(client):
+    response = client.put("/api/datasource", json={"market_data_provider": "pytse"})
+    assert response.status_code == 200
+    assert _load(client.settings_path)["market_data"]["provider"] == "pytse"
+
+
+def test_unknown_provider_is_rejected(client):
+    response = client.put("/api/datasource", json={"option_chain_provider": "nope"})
+    assert response.status_code == 400
+    assert "nope" in response.json()["detail"]
+
+
+def test_enrichment_requires_broker_to_be_enabled(client):
+    """غنی‌سازی بدون کارگزاری بی‌معناست و باید صریح رد شود.
+
+    اگر بی‌صدا پذیرفته شود، کاربر فکر می‌کند وجه تضمین از کارگزاری
+    می‌آید در حالی که هیچ‌وقت نمی‌آید.
+    """
+    response = client.put("/api/datasource", json={"enrich_with_broker": True})
+    assert response.status_code == 400
+    assert "حساب" in response.json()["detail"]
+
+
+def test_enrichment_allowed_once_broker_is_on(client):
+    import yaml
+
+    path = client.settings_path
+    data = yaml.safe_load(open(path, encoding="utf-8"))
+    data["broker"] = {"enabled": True, "token": "x"}
+    path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+
+    response = client.put("/api/datasource", json={"enrich_with_broker": True})
+    assert response.status_code == 200
+    assert _load(path)["option_chain"]["enrich_with_broker"] is True
+
+
+def test_enrich_limit_is_bounded(client):
+    """سقف بالا لازم است: هر واحد یک درخواست شبکه در هر پاس است."""
+    assert client.put("/api/datasource", json={"enrich_limit": 5000}).status_code == 400
+    assert client.put("/api/datasource", json={"enrich_limit": -1}).status_code == 400
+    assert client.put("/api/datasource", json={"enrich_limit": 10}).status_code == 200
+
+
+def test_broker_token_is_never_returned(client):
+    """توکن نباید از هیچ endpointی برگردد."""
+    client.put("/api/broker", json={"enabled": True, "token": "SECRET_TOKEN_123"})
+
+    for path in ("/api/datasource", "/api/status", "/api/account"):
+        assert "SECRET_TOKEN_123" not in client.get(path).text, f"توکن در {path} لو رفت"
