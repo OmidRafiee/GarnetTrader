@@ -346,3 +346,16 @@ def test_report_metrics_use_none_for_unknown(client):
     if metrics["total"] == 0:
         assert metrics["expectancy_pct"] is None
         assert metrics["sharpe_per_signal"] is None
+
+
+def test_iv_surface_endpoint_reports_level_skew_and_term(client):
+    body = client.get("/api/iv-surface", params={"underlying": "خودرو"}).json()
+    for key in ("atm_iv", "mean_iv", "skew", "term_structure", "iv_rank"):
+        assert key in body, key
+
+
+def test_iv_rank_is_null_until_history_is_long_enough(client):
+    """`None` یعنی تاریخچه کافی نیست — نه «متوسط»."""
+    body = client.get("/api/iv-surface", params={"underlying": "خودرو"}).json()
+    if body.get("history_samples", 0) < 20:
+        assert body["iv_rank"] is None

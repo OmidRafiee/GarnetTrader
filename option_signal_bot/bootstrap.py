@@ -45,6 +45,7 @@ from notifiers.telegram_commands import (
     TelegramCommandBot,
 )
 from notifiers.telegram_notifier import TelegramNotifier
+from pricing.iv_surface import IVHistory
 from risk.fees import FeeSchedule
 from risk.risk_calculator import RiskCalculator, RiskLimits
 from signals.signal_generator import GeneratorConfig, SignalGenerator
@@ -348,6 +349,24 @@ def build_holdings_provider(account_source: Any | None):
     return provider
 
 
+def build_iv_history(settings: dict[str, Any]) -> IVHistory | None:
+    """تاریخچه‌ی IV هر نماد، یا `None` اگر خاموش باشد.
+
+    IV تاریخی از هیچ endpoint عمومی در دسترس نیست، پس هر پاس خودمان
+    ثبتش می‌کنیم. تا نمونه‌ی کافی جمع نشود، صدک `None` است و استراتژی به
+    معیار قبلی (`iv/realized`) برمی‌گردد — پس روشن بودنش از روز اول هم
+    رفتار کسی را عوض نمی‌کند، فقط تاریخچه می‌سازد.
+    """
+    config = section(settings, "iv_history")
+    if not config.get("enabled", True):
+        return None
+    return IVHistory(
+        path=resolve_path(config.get("path", "var/iv_history.json")),
+        max_days=int(config.get("max_days", 365)),
+        min_samples=int(config.get("min_samples", 20)),
+    )
+
+
 def build_generator(
     settings: dict[str, Any],
     market_data: MarketDataClient,
@@ -361,6 +380,7 @@ def build_generator(
         risk_calculator=build_risk_calculator(settings, account_source),
         config=build_generator_config(settings),
         holdings_provider=build_holdings_provider(account_source),
+        iv_history=build_iv_history(settings),
     )
 
 

@@ -115,6 +115,16 @@ def default_settings() -> dict[str, Any]:
         #
         # گزارش دوره‌ای پیش‌فرض خاموش است: پیام دوره‌ای فرستادن باید
         # انتخاب صریح کاربر باشد، نه اتفاقی.
+        # تاریخچه‌ی IV هر نماد: IV تاریخی از هیچ endpoint عمومی
+        # در دست نیست، پس هر پاس خودمان ثبتش می‌کنیم. تا نمونه‌ی
+        # کافی جمع نشود، صدک None است و استراتژی به معیار قبلی
+        # برمی‌گردد — پس روشن بودنش رفتار کسی را عوض نمی‌کند.
+        "iv_history": {
+            "enabled": True,
+            "path": "var/iv_history.json",
+            "max_days": 365,
+            "min_samples": 20,
+        },
         "monitoring": {
             "health_enabled": True,
             "periodic_report_enabled": False,

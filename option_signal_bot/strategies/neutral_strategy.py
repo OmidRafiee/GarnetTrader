@@ -29,6 +29,22 @@ from strategies.registry import register_strategy
 logger = logging.getLogger(__name__)
 
 
+def _iv_rank_metadata(context: StrategyContext) -> dict[str, Any]:
+    """جایگاه IV در تاریخچه‌ی خودِ نماد، برای درج در سیگنال.
+
+    اگر تاریخچه نباشد، دیکشنری خالی برمی‌گردد — کلیدِ `None` فقط شلوغی
+    است و نبودش صریح‌تر می‌گوید «نمی‌دانیم».
+    """
+    rank = context.iv_rank
+    if rank is None or not rank.is_known:
+        return {}
+    return {
+        "iv_percentile": round(rank.percentile, 1),
+        "iv_rank": round(rank.rank, 1),
+        "iv_history_days": rank.samples,
+    }
+
+
 @register_strategy
 class NeutralStrategy(BaseStrategy):
     """بر اساس مقایسه IV با نوسان تاریخی، سیگنال Covered Call یا Straddle می‌دهد."""
@@ -59,6 +75,12 @@ class NeutralStrategy(BaseStrategy):
             # هشدار صادر می‌شود — رفتار قبلی پروژه. `True` یعنی
             # سخت‌گیرانه: نامعلوم هم رد شود.
             "skip_covered_call_if_holding_unknown": False,
+            # تاریخچه‌ی IV خودِ نماد (اگر در دست باشد) هم شرط شود.
+            # پیش‌فرض روشن است ولی بی‌تاریخچه بی‌اثر می‌ماند، پس رفتار
+            # کسی بی‌خبر عوض نمی‌شود.
+            "use_iv_rank": True,
+            "rich_iv_percentile": 70.0,
+            "cheap_iv_percentile": 30.0,
         }
 
     def generate(self, context: StrategyContext) -> list[Signal]:
@@ -78,9 +100,26 @@ class NeutralStrategy(BaseStrategy):
         iv_ratio = atm_iv / realized
         signals: list[Signal] = []
 
-        if self.params["enable_covered_call"] and iv_ratio >= self.params["rich_iv_ratio"]:
+        rich = iv_ratio >= self.params["rich_iv_ratio"]
+        cheap = iv_ratio <= self.params["cheap_iv_ratio"]
+
+        # اگر تاریخچه‌ی IV **خودِ این نماد** در دست باشد، حرف آخر را
+        # می‌زند. دلیلش: نسبت `iv/realized` پرمیوم ریسکِ ذاتی هر نماد را
+        # نمی‌بیند و روی نمادی که همیشه IV بالایی دارد، همیشه «گران»
+        # می‌گوید — یعنی نماد را انتخاب می‌کند نه لحظه را.
+        rank = context.iv_rank
+        if self.params["use_iv_rank"] and rank is not None and rank.is_known:
+            rich_by_rank = rank.percentile >= self.params["rich_iv_percentile"]
+            cheap_by_rank = rank.percentile <= self.params["cheap_iv_percentile"]
+            # **هر دو** شرط لازم است، نه یکی: نسبت به نوسان تاریخی گران
+            # باشد *و* نسبت به گذشته‌ی خودش هم گران. سخت‌گیرانه‌تر است و
+            # سیگنال کمتری می‌دهد — که بهتر از سیگنالِ بی‌پشتوانه است.
+            rich = rich and rich_by_rank
+            cheap = cheap and cheap_by_rank
+
+        if self.params["enable_covered_call"] and rich:
             signals.extend(self._covered_call(context, atm_iv, realized, iv_ratio))
-        elif self.params["enable_straddle"] and iv_ratio <= self.params["cheap_iv_ratio"]:
+        elif self.params["enable_straddle"] and cheap:
             signals.extend(self._straddle(context, atm_call, atm_iv, realized, iv_ratio))
 
         return signals
@@ -159,6 +198,7 @@ class NeutralStrategy(BaseStrategy):
                     "implied_vol": round(iv, 4),
                     "realized_vol": round(realized, 4),
                     "iv_ratio": round(iv_ratio, 3),
+                    **_iv_rank_metadata(context),
                 },
             )
         ]
@@ -192,6 +232,7 @@ class NeutralStrategy(BaseStrategy):
             "breakeven_move_pct": round(breakeven_pct, 3),
             "implied_vol": round(iv, 4),
             "realized_vol": round(realized, 4),
+            **_iv_rank_metadata(context),
         }
         confidence = round(min((1.0 - iv_ratio), 1.0), 2)
         return [

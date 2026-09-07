@@ -8,10 +8,12 @@
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from typing import Any
 
 from data.market_data_client import MarketDataClient
 from data.option_chain_client import OptionChainClient
@@ -47,6 +49,7 @@ class SignalGenerator:
         risk_calculator: RiskCalculator | None = None,
         config: GeneratorConfig | None = None,
         holdings_provider: Callable[[], dict[str, int]] | None = None,
+        iv_history: Any | None = None,
     ) -> None:
         self.market_data = market_data
         self.option_chain = option_chain
@@ -61,6 +64,9 @@ class SignalGenerator:
         #: کش یک‌پاسی. بدون این، هر نماد یک درخواست به کارگزاری می‌زند
         #: در حالی که یک پاسخ همه‌ی دارایی‌ها را دارد.
         self._holdings: dict[str, int] | None = None
+        #: تاریخچه‌ی IV هر نماد (`IVHistory`) — برای تشخیص گران/ارزان
+        #: نسبت به گذشته‌ی **خودِ** نماد، نه نسبت به یک آستانه‌ی سراسری.
+        self.iv_history = iv_history
 
         # ------------------------------------------------------------------
         # شمارنده‌های آخرین پاس — برای پایش سلامت.
@@ -241,7 +247,8 @@ class SignalGenerator:
         quote = self.market_data.get_quote(symbol)
         history = self.market_data.get_history(symbol, self.config.history_days)
         chain = self.option_chain.get_chain(symbol)
-        return StrategyContext(
+
+        base = StrategyContext(
             underlying=symbol,
             quote=quote,
             history=history,
@@ -251,6 +258,42 @@ class SignalGenerator:
             data_source=self.data_source,
             underlying_holding=self._holding_for(symbol),
         )
+
+        rank = self._iv_rank_for(base)
+        if rank is None:
+            return base
+        # `StrategyContext` فریز است، پس نسخه‌ی تازه ساخته می‌شود.
+        return dataclasses.replace(base, iv_rank=rank)
+
+    def _iv_rank_for(self, context: StrategyContext) -> Any | None:
+        """IV ATM را ثبت و جایگاهش را در تاریخچه‌ی همین نماد برمی‌گرداند.
+
+        دو کار در یک جا انجام می‌شود چون به هم وابسته‌اند: تاریخچه‌ی IV از
+        هیچ endpoint عمومی در دسترس نیست، پس باید خودمان هر پاس ثبتش کنیم
+        تا روزی صدک معنا پیدا کند.
+
+        شکست اینجا کشنده نیست: بدون رتبه، استراتژی به معیار قبلی
+        (`iv/realized`) برمی‌گردد.
+        """
+        if self.iv_history is None:
+            return None
+
+        try:
+            from pricing.iv_surface import IVSurface
+
+            surface = IVSurface.from_chain(
+                context.chain, context.implied_vol, today=context.today()
+            )
+            atm = surface.atm_iv()
+            if atm is None:
+                return None
+
+            self.iv_history.record(context.underlying, atm, context.today())
+            self.iv_history.save()
+            return self.iv_history.rank(context.underlying, atm)
+        except Exception as exc:  # رتبه‌ی IV یک افزونه است، نه پیش‌نیاز
+            logger.warning("رتبه‌ی IV %s حساب نشد: %s", context.underlying, exc)
+            return None
 
     # ------------------------------------------------------------------
     def _post_process(

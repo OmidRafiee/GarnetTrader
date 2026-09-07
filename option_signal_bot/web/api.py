@@ -444,6 +444,56 @@ def get_rank_keys() -> dict[str, Any]:
     }
 
 
+@app.get("/api/iv-surface")
+async def get_iv_surface(underlying: str) -> dict[str, Any]:
+    """سطح IV یک نماد: سطح ATM، اسکیو، ساختار زمانی، و رتبه‌ی تاریخی.
+
+    اسکیو مثبت یعنی پوت‌ها گران‌ترند — حالت عادی بازار سهام. ساختار
+    زمانیِ **نزولی** یعنی نگرانی کوتاه‌مدت، که اسپرد تقویمی را جذاب
+    می‌کند.
+    """
+
+    def _work() -> dict[str, Any]:
+        from pricing.iv_surface import IVSurface
+
+        settings = _settings()
+        context = create_app(settings, dry_run=True)
+        try:
+            built = context.generator.build_context(underlying)
+            surface = IVSurface.from_chain(
+                built.chain, built.implied_vol, today=built.today()
+            )
+            data = surface.to_dict()
+            rank = built.iv_rank
+            # `None` یعنی تاریخچه کافی نیست — نه «متوسط»
+            data["iv_rank"] = (
+                None
+                if rank is None or not rank.is_known
+                else {
+                    "current": rank.current,
+                    "percentile": round(rank.percentile, 1),
+                    "rank": round(rank.rank, 1),
+                    "low": rank.low,
+                    "high": rank.high,
+                    "samples": rank.samples,
+                }
+            )
+            data["history_samples"] = (
+                context.generator.iv_history.sample_count(underlying)
+                if context.generator.iv_history is not None
+                else 0
+            )
+            return data
+        finally:
+            context.close()
+
+    try:
+        return await asyncio.to_thread(_work)
+    except Exception as exc:
+        logger.exception("ساخت سطح IV ناموفق بود.")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 @app.get("/api/structures/kinds")
 def get_structure_kinds() -> dict[str, Any]:
     """ساختارهای قابل اسکن، با برچسب فارسی.
