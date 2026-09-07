@@ -344,3 +344,128 @@ def test_attach_depth_survives_network_failure(monkeypatch):
     data = _structures()
     _attach_depth(data)
     assert data["long_straddle"][0]["legs"][0]["depth"] is None
+
+
+# ----------------------------------------------------------------------
+# قرارداد منبع مظنه
+# ----------------------------------------------------------------------
+def test_client_implements_the_quote_source_contract():
+    """هسته باید فقط قرارداد را بشناسد، نه TSETMC را.
+
+    بدون این، افزودن مسیر push (Lightstreamer ایزی‌تریدر) یعنی تغییر در
+    همه‌ی مصرف‌کننده‌ها.
+    """
+    from data.quote_source import RealtimeQuoteSource
+
+    assert issubclass(OrderBookClient, RealtimeQuoteSource)
+    assert OrderBookClient.name == "tsetmc"
+
+
+def test_tsetmc_source_declares_itself_as_polling():
+    """مصرف‌کننده با همین تصمیم می‌گیرد هر چند وقت بپرسد."""
+    assert OrderBookClient.is_push is False
+
+
+def test_try_get_comes_from_the_base_contract():
+    """رفتار «خطا را بخور» یک جا تعریف شده، نه در هر پیاده‌سازی."""
+    from data.quote_source import RealtimeQuoteSource
+
+    assert "try_get_order_book" not in vars(OrderBookClient)
+    assert "try_get_order_book" in vars(RealtimeQuoteSource)
+
+
+def test_a_custom_source_gets_error_swallowing_for_free():
+    """پیاده‌سازی تازه فقط `get_order_book` را لازم دارد."""
+    from data.quote_source import RealtimeQuoteSource
+
+    class _Broken(RealtimeQuoteSource):
+        name = "broken"
+
+        def get_order_book(self, ins_code, symbol=""):
+            raise RuntimeError("شبکه")
+
+    assert _Broken().try_get_order_book("1") is None
+
+
+def test_the_contract_cannot_be_instantiated():
+    from data.quote_source import RealtimeQuoteSource
+
+    with pytest.raises(TypeError):
+        RealtimeQuoteSource()
+
+
+def test_quote_source_does_not_reach_the_execution_layer():
+    """قرارداد سخت پروژه، با AST و نه جستجوی متن."""
+    import ast
+    from pathlib import Path
+
+    source = Path(__file__).resolve().parent.parent / "data" / "quote_source.py"
+    tree = ast.parse(source.read_text(encoding="utf-8"))
+
+    imported: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported.update(a.name.split(".")[0] for a in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imported.add(node.module.split(".")[0])
+    assert "execution" not in imported
+
+
+# ----------------------------------------------------------------------
+# یکپارچگیِ نگاشت — یک پارسر، دو مصرف‌کننده
+# ----------------------------------------------------------------------
+def test_best_limits_is_parsed_in_exactly_one_place(payloads):
+    """دو نگاشت موازی از یک پاسخ، دیر یا زود واگرا می‌شوند و بعد دو عدد
+    مختلف برای «بهترین مظنه» می‌دهند."""
+    from data.tsetmc_quote_client import parse_best_limits
+
+    payload = payloads["liquid_call"]["payload"]
+    levels = parse_best_limits(payload, "x")
+    direct = OrderBook.from_tsetmc("x", payload)
+    via_depth = OrderBook.from_depth("x", levels)
+
+    assert direct.bids == via_depth.bids
+    assert direct.asks == via_depth.asks
+
+
+def test_shared_parser_keeps_order_book_semantics(payloads):
+    """سطوح خالی حذف و ترتیب تضمین می‌شود، حتی از مسیر پارسر مشترک."""
+    from data.tsetmc_quote_client import parse_best_limits
+
+    book = OrderBook.from_depth(
+        "x", parse_best_limits(payloads["thin_put"]["payload"], "x")
+    )
+    assert all(lv.is_real for lv in book.bids + book.asks)
+    assert [lv.price for lv in book.asks] == sorted(lv.price for lv in book.asks)
+
+
+def test_quote_client_depth_feeds_the_order_book(payloads, monkeypatch):
+    """مسیر واقعی: کلاینت مظنه عمق می‌دهد، دفتر سفارش منطق را اضافه می‌کند."""
+    from data.tsetmc_quote_client import TsetmcQuoteClient
+
+    monkeypatch.setattr(
+        "data.tsetmc_quote_client.fetch_json",
+        lambda *a, **k: payloads["liquid_call"]["payload"],
+    )
+    levels = TsetmcQuoteClient().get_depth("123")
+    assert levels
+
+    book = OrderBook.from_depth("ضهرم6040", levels)
+    assert book.best_ask == 33800.0
+    # همان منطقی که قبلاً تست شد، از مسیر تازه
+    avg, filled = book.fill_price("buy", 10)
+    assert filled == 10 and avg > book.best_ask
+
+
+def test_malformed_rows_are_dropped_by_the_shared_parser():
+    from data.tsetmc_quote_client import parse_best_limits
+
+    levels = parse_best_limits({"bestLimits": ["junk", None, {}]}, "x")
+    book = OrderBook.from_depth("x", levels)
+    assert book.bids == () and book.asks == ()
+
+
+def test_missing_best_limits_key_returns_no_levels():
+    from data.tsetmc_quote_client import parse_best_limits
+
+    assert parse_best_limits({}, "x") == ()

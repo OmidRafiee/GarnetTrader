@@ -48,6 +48,45 @@ class DepthLevel:
         return self.ask_price - self.bid_price
 
 
+def parse_best_limits(payload: dict[str, Any], label: str = "") -> tuple[DepthLevel, ...]:
+    """پاسخ خام `BestLimits` را به سطوح عمق تبدیل می‌کند.
+
+    **تنها جای نگاشتِ این پاسخ در پروژه.** `data/order_book.py` هم همین
+    را صدا می‌زند: دو نگاشت موازی از یک پاسخ، دیر یا زود با هم واگرا
+    می‌شوند و بعد دو عدد مختلف برای «بهترین مظنه» می‌دهند.
+
+    نگاشت: `pMeDem`/`qTitMeDem`/`zOrdMeDem` سمت **خرید** (تقاضا) و
+    `pMeOf`/`qTitMeOf`/`zOrdMeOf` سمت **فروش** (عرضه).
+    """
+    rows = payload.get("bestLimits")
+    if not isinstance(rows, list):
+        logger.warning("عمق بازار %s در دسترس نبود.", label)
+        return ()
+
+    levels = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        try:
+            levels.append(
+                DepthLevel(
+                    level=int(row.get("number") or 0),
+                    bid_price=float(row.get("pMeDem") or 0),
+                    bid_quantity=int(row.get("qTitMeDem") or 0),
+                    bid_orders=int(row.get("zOrdMeDem") or 0),
+                    ask_price=float(row.get("pMeOf") or 0),
+                    ask_quantity=int(row.get("qTitMeOf") or 0),
+                    ask_orders=int(row.get("zOrdMeOf") or 0),
+                )
+            )
+        except (TypeError, ValueError):
+            # یک سطح خراب نباید کل عمق را از بین ببرد
+            logger.debug("سطح عمق ناخوانا برای %s رد شد.", label)
+
+    levels.sort(key=lambda d: d.level)
+    return tuple(levels)
+
+
 @dataclass(frozen=True)
 class LiveQuote:
     """وضعیت لحظه‌ای یک نماد، با عمق بازار."""
@@ -173,28 +212,4 @@ class TsetmcQuoteClient:
             user_agent=self.user_agent,
             label=f"عمق بازار {ins_code}",
         )
-        rows = payload.get("bestLimits")
-        if not isinstance(rows, list):
-            logger.warning("عمق بازار %s در دسترس نبود.", ins_code)
-            return ()
-
-        levels = []
-        for row in rows:
-            try:
-                levels.append(
-                    DepthLevel(
-                        level=int(row.get("number") or 0),
-                        bid_price=float(row.get("pMeDem") or 0),
-                        bid_quantity=int(row.get("qTitMeDem") or 0),
-                        bid_orders=int(row.get("zOrdMeDem") or 0),
-                        ask_price=float(row.get("pMeOf") or 0),
-                        ask_quantity=int(row.get("qTitMeOf") or 0),
-                        ask_orders=int(row.get("zOrdMeOf") or 0),
-                    )
-                )
-            except (TypeError, ValueError):
-                # یک سطح خراب نباید کل عمق را از بین ببرد
-                logger.debug("سطح عمق ناخوانا برای %s رد شد.", ins_code)
-
-        levels.sort(key=lambda d: d.level)
-        return tuple(levels)
+        return parse_best_limits(payload, ins_code)

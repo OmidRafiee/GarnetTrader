@@ -20,6 +20,12 @@
 پاسخ: `bestLimits[]` با ۵ سطح، هر سطح شامل قیمت، حجم و **تعداد سفارش**
 در هر دو سمت. بدون احراز هویت، مثل بقیه‌ی منابع این پروژه.
 
+نگاشتِ خودِ پاسخ در `data/tsetmc_quote_client.py::parse_best_limits`
+است و اینجا فقط صدا زده می‌شود. این ماژول **منطق** را اضافه می‌کند
+(«با این حجم چه قیمتی پر می‌شود»)، نه یک نگاشت دوم — دو نگاشت موازی از
+یک پاسخ دیر یا زود واگرا می‌شوند و بعد دو عدد مختلف برای «بهترین مظنه»
+می‌دهند.
+
 **چرا اختیاری است**
 
 این endpoint هر بار فقط یک نماد می‌دهد. زنجیره‌ی کامل ۶۹۳ ردیف دارد؛
@@ -32,8 +38,11 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass, field
+from typing import Any
 
+from data.quote_source import RealtimeQuoteSource
 from data.tsetmc_http import DEFAULT_USER_AGENT, fetch_json
 
 logger = logging.getLogger(__name__)
@@ -154,28 +163,27 @@ class OrderBook:
 
     # -- ساخت -----------------------------------------------------------
     @classmethod
-    def from_tsetmc(cls, symbol: str, payload: dict) -> OrderBook:
-        """از پاسخ خام `BestLimits`.
+    def from_depth(cls, symbol: str, levels: Iterable[Any]) -> OrderBook:
+        """از سطوح `DepthLevel` (خروجی `data/tsetmc_quote_client.py`).
 
-        نگاشت فیلدها: `pMeDem`/`qTitMeDem`/`zOrdMeDem` سمت **خرید** (تقاضا)
-        و `pMeOf`/`qTitMeOf`/`zOrdMeOf` سمت **فروش** (عرضه).
+        نگاشت خامِ `BestLimits` **یک جا** انجام می‌شود — در
+        `TsetmcQuoteClient.get_depth`. این کلاس فقط منطق «با این حجم چه
+        قیمتی پر می‌شود» را اضافه می‌کند. دو نگاشتِ موازی از یک پاسخ،
+        دیر یا زود با هم واگرا می‌شوند.
         """
-        rows = payload.get(BEST_LIMITS_KEY) or []
         bids: list[BookLevel] = []
         asks: list[BookLevel] = []
 
-        for row in rows:
-            if not isinstance(row, dict):
-                continue
+        for level in levels:
             bid = BookLevel(
-                price=_number(row.get("pMeDem")),
-                quantity=int(_number(row.get("qTitMeDem"))),
-                orders=int(_number(row.get("zOrdMeDem"))),
+                price=_number(getattr(level, "bid_price", 0)),
+                quantity=int(_number(getattr(level, "bid_quantity", 0))),
+                orders=int(_number(getattr(level, "bid_orders", 0))),
             )
             ask = BookLevel(
-                price=_number(row.get("pMeOf")),
-                quantity=int(_number(row.get("qTitMeOf"))),
-                orders=int(_number(row.get("zOrdMeOf"))),
+                price=_number(getattr(level, "ask_price", 0)),
+                quantity=int(_number(getattr(level, "ask_quantity", 0))),
+                orders=int(_number(getattr(level, "ask_orders", 0))),
             )
             if bid.is_real:
                 bids.append(bid)
@@ -186,6 +194,17 @@ class OrderBook:
         bids.sort(key=lambda lv: lv.price, reverse=True)
         asks.sort(key=lambda lv: lv.price)
         return cls(symbol=symbol, bids=tuple(bids), asks=tuple(asks))
+
+    @classmethod
+    def from_tsetmc(cls, symbol: str, payload: dict) -> OrderBook:
+        """از پاسخ خام `BestLimits`.
+
+        نگاشت فیلدها را به `parse_best_limits` واگذار می‌کند تا همان
+        کدی اجرا شود که `TsetmcQuoteClient` استفاده می‌کند.
+        """
+        from data.tsetmc_quote_client import parse_best_limits
+
+        return cls.from_depth(symbol, parse_best_limits(payload, symbol))
 
     def to_dict(self) -> dict:
         """برای داشبورد و لاگ."""
@@ -215,8 +234,8 @@ def _number(value: object) -> float:
         return 0.0
 
 
-class OrderBookClient:
-    """عمق مظنه از TSETMC، با کش کوتاه.
+class OrderBookClient(RealtimeQuoteSource):
+    """عمق مظنه از TSETMC (پولینگ)، با کش کوتاه.
 
     کش عمداً کوتاه است (پیش‌فرض ۱۰ ثانیه): دفتر سفارش سریع‌ترین چیزِ
     متغیر بازار است و عمقِ کهنه بدتر از عمقِ نداشته است — چون اعتماد
@@ -228,6 +247,11 @@ class OrderBookClient:
     """
 
     source_name = "tsetmc"
+    name = "tsetmc"
+    #: پولینگ است، نه push: هر بار یک درخواست HTTP. مسیر push
+    #: (Lightstreamer ایزی‌تریدر) پیاده‌سازی جداگانه‌ای از همین قرارداد
+    #: خواهد بود.
+    is_push = False
 
     def __init__(
         self,
@@ -258,15 +282,3 @@ class OrderBookClient:
         self._cache[ins_code] = (time.monotonic(), book)
         return book
 
-    def try_get_order_book(self, ins_code: str, symbol: str = "") -> OrderBook | None:
-        """مثل بالا، ولی خطا را می‌بلعد.
-
-        عمق یک **افزونه** است، نه پیش‌نیاز سیگنال. اگر این endpoint در
-        دسترس نباشد، باید به مظنه‌ی سطح‌اول برگردیم، نه اینکه کل پاس رصد
-        بخوابد.
-        """
-        try:
-            return self.get_order_book(ins_code, symbol)
-        except Exception as exc:  # عمق نباید پاس رصد را بخواباند
-            logger.warning("عمق مظنه %s دریافت نشد: %s", symbol or ins_code, exc)
-            return None
