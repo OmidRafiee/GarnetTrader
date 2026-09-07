@@ -333,3 +333,98 @@ def test_no_provider_named_mock_is_registered():
 
     assert "mock" not in bootstrap.MARKET_DATA_PROVIDERS
     assert "mock" not in bootstrap.OPTION_CHAIN_PROVIDERS
+
+
+# ----------------------------------------------------------------------
+# دارایی حساب از کارگزاری
+# ----------------------------------------------------------------------
+class _StubAccount:
+    """آداپتر حسابِ کمینه — فقط چیزی که `build_risk_calculator` لازم دارد."""
+
+    def __init__(self, equity=None, error=None):
+        self._equity = equity
+        self._error = error
+        self.calls = 0
+
+    def get_balance(self):
+        from brokers.base import AccountBalance
+
+        self.calls += 1
+        if self._error is not None:
+            raise self._error
+        return AccountBalance(buy_power_t2=self._equity)
+
+
+def test_risk_uses_yaml_equity_by_default(settings):
+    """پیش‌فرض خاموش است؛ رفتار فعلی کسی نباید بی‌خبر عوض شود."""
+    settings["risk"]["account_equity"] = 1_000.0
+    account = _StubAccount(equity=999_999.0)
+
+    calculator = bootstrap.build_risk_calculator(settings, account)
+    assert calculator.limits.account_equity == 1_000.0
+    assert account.calls == 0, "وقتی خاموش است نباید موجودی خوانده شود"
+
+
+def test_risk_uses_broker_equity_when_enabled(settings):
+    settings["risk"]["account_equity"] = 1_000.0
+    settings["risk"]["use_broker_equity"] = True
+
+    calculator = bootstrap.build_risk_calculator(
+        settings, _StubAccount(equity=50_000.0)
+    )
+    assert calculator.limits.account_equity == 50_000.0
+
+
+def test_broker_equity_needs_an_account_source(settings):
+    settings["risk"]["account_equity"] = 1_000.0
+    settings["risk"]["use_broker_equity"] = True
+
+    calculator = bootstrap.build_risk_calculator(settings, None)
+    assert calculator.limits.account_equity == 1_000.0
+
+
+@pytest.mark.parametrize("equity", [0.0, -5_000.0])
+def test_non_positive_broker_equity_keeps_yaml_value(settings, equity):
+    """حساب صفر یعنی هر سیگنال صفر قرارداد — شبیه یک باگ، نه یک تصمیم."""
+    settings["risk"]["account_equity"] = 1_000.0
+    settings["risk"]["use_broker_equity"] = True
+
+    calculator = bootstrap.build_risk_calculator(
+        settings, _StubAccount(equity=equity)
+    )
+    assert calculator.limits.account_equity == 1_000.0
+
+
+def test_broker_failure_falls_back_to_yaml(settings):
+    """قطعی کارگزاری نباید ربات را بخواباند."""
+    settings["risk"]["account_equity"] = 1_000.0
+    settings["risk"]["use_broker_equity"] = True
+
+    calculator = bootstrap.build_risk_calculator(
+        settings, _StubAccount(error=RuntimeError("توکن منقضی"))
+    )
+    assert calculator.limits.account_equity == 1_000.0
+
+
+def test_broker_equity_preserves_other_risk_limits(settings):
+    """جایگزینی دارایی نباید بقیه‌ی سقف‌ها را پاک کند."""
+    settings["risk"].update(
+        {"account_equity": 1_000.0, "use_broker_equity": True, "max_contracts": 7}
+    )
+    limits = bootstrap.build_risk_calculator(
+        settings, _StubAccount(equity=50_000.0)
+    ).limits
+
+    assert limits.account_equity == 50_000.0
+    assert limits.max_contracts == 7
+
+
+def test_use_broker_equity_is_not_an_unknown_key_warning(settings, caplog):
+    """هشدارِ «کلید ناشناخته» برای گرفتن غلط‌املایی است.
+
+    اگر روی یک کلید درست هم روشن شود، اعتبارش را از دست می‌دهد.
+    """
+    settings["risk"]["use_broker_equity"] = False
+    with caplog.at_level("WARNING"):
+        bootstrap.build_risk_calculator(settings)
+    assert "use_broker_equity" not in caplog.text

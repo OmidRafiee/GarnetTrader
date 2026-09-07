@@ -9,6 +9,7 @@
 """
 
 from brokers.base import (
+    AccountBalance,
     AccountDataSource,
     BrokerAuthError,
     BrokerError,
@@ -19,6 +20,7 @@ from brokers.base import (
 )
 
 __all__ = [
+    "AccountBalance",
     "AccountDataSource",
     "BrokerAuthError",
     "BrokerError",

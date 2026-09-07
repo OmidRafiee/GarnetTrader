@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from brokers.base import (
+    AccountBalance,
     AccountDataSource,
     BrokerAuthError,
     BrokerError,
@@ -73,6 +74,21 @@ def _require(payload: dict[str, Any], key: str, context: str) -> Any:
             "احتمالاً شکل API کارگزاری عوض شده؛ docs/broker-emofid.md را به‌روز کنید."
         )
     return payload[key]
+
+
+def _float(value: Any) -> float:
+    """عدد یا صفر — برای فیلدهایی که نبودشان معنای درستی دارد.
+
+    برعکس `_require`: در پاسخ موجودی، نبودِ `credit` یعنی «اعتباری نیست»،
+    نه «شکل API عوض شده». پس اینجا صفر جوابِ درست است، نه خطا.
+    """
+    if value is None:
+        return 0.0
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        logger.debug("عدد ناخوانا از کارگزاری: %r", value)
+        return 0.0
 
 
 class EmofidAccountClient(AccountDataSource):
@@ -321,6 +337,33 @@ class EmofidAccountClient(AccountDataSource):
             cash_settlement_date=_parse_date(row.get("cashSettlementDate")),
             physical_settlement_date=_parse_date(row.get("physicalSettlementDate")),
             raw=row,
+        )
+
+    def get_balance(self) -> AccountBalance:
+        """موجودی و قدرت خرید حساب.
+
+        `GET /easy/api/money`
+
+        شکل پاسخ از سشن واقعیِ کشف‌شده می‌آید (`docs/broker-emofid.md`).
+        هیچ فیلدی `_require` نیست: کارگزاری برای حساب‌های مختلف بخشی از
+        این فیلدها را نمی‌فرستد، و نبودِ `credit` نباید خواندن موجودی را
+        بشکند. صفر در این پاسخ معنای درستی دارد.
+        """
+        payload = self._get("/easy/api/money")
+        if not isinstance(payload, dict):
+            raise BrokerError("پاسخ money باید شیء باشد. شکل API عوض شده است.")
+
+        return AccountBalance(
+            cash_t0=_float(payload.get("t0")),
+            cash_t1=_float(payload.get("t1")),
+            cash_t2=_float(payload.get("t2")),
+            buy_power_t0=_float(payload.get("buyPowerT0")),
+            buy_power_t1=_float(payload.get("buyPowerT1")),
+            buy_power_t2=_float(payload.get("buyPowerT2")),
+            blocked=_float(payload.get("block")),
+            margin_blocked=_float(payload.get("marginBlock")),
+            credit=_float(payload.get("credit")),
+            raw=payload,
         )
 
     def get_contract_spec(self, symbol_isin: str) -> OptionContractSpec:

@@ -279,3 +279,26 @@ def test_broker_token_is_never_returned(client):
 
     for path in ("/api/datasource", "/api/status", "/api/account"):
         assert "SECRET_TOKEN_123" not in client.get(path).text, f"توکن در {path} لو رفت"
+
+
+def test_risk_exposes_use_broker_equity(client):
+    assert "use_broker_equity" in client.get("/api/risk").json()
+
+
+def test_use_broker_equity_can_be_toggled(client):
+    """چک‌باکس باید boolean بنشیند، نه ۰/۱ — وگرنه سوئیچ بی‌اثر است."""
+    res = client.put("/api/risk", json={"use_broker_equity": True})
+    assert res.status_code == 200
+
+    stored = _load(client.settings_path)
+    assert stored["risk"]["use_broker_equity"] is True
+    assert client.get("/api/risk").json()["use_broker_equity"] is True
+
+
+def test_toggling_broker_equity_keeps_other_risk_values(client):
+    before = client.get("/api/risk").json()
+    client.put("/api/risk", json={"use_broker_equity": True})
+    after = client.get("/api/risk").json()
+
+    assert after["account_equity"] == before["account_equity"]
+    assert after["max_contracts"] == before["max_contracts"]

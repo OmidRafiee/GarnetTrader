@@ -460,6 +460,25 @@ async function loadRisk() {
       f.append(inp);
       box.append(f);
     });
+
+    // دارایی از کارگزاری: چک‌باکس، نه عدد — پس جدا ساخته می‌شود
+    const cb = el("div", "field");
+    const lbl = el("label");
+    const box2 = el("input");
+    box2.type = "checkbox";
+    box2.id = "risk-use-broker";
+    box2.checked = risk.use_broker_equity === true;
+    box2.dataset.original = String(box2.checked);
+    box2.addEventListener("change", () =>
+      cb.classList.toggle("changed", String(box2.checked) !== box2.dataset.original)
+    );
+    lbl.append(box2);
+    lbl.append(document.createTextNode(" دارایی حساب را از کارگزاری بخوان"));
+    cb.append(lbl);
+    cb.append(el("div", "note",
+      "عدد بالا سریع کهنه می‌شود. نیاز به فعال بودن اتصال کارگزاری دارد؛ " +
+      "اگر موجودی خوانده نشود، همان عدد بالا استفاده می‌شود."));
+    box.append(cb);
   } catch (err) {
     box.innerHTML = "";
     box.append(el("div", "error", "خطا: " + err.message));
@@ -469,9 +488,14 @@ async function loadRisk() {
 $("#btn-save-risk").addEventListener("click", async () => {
   const note = $("#risk-note");
   const patch = {};
-  document.querySelectorAll("#risk-fields input").forEach((inp) => {
+  document.querySelectorAll("#risk-fields input[type=number]").forEach((inp) => {
     if (inp.value !== inp.dataset.original) patch[inp.dataset.key] = Number(inp.value);
   });
+  // چک‌باکس باید boolean برود، نه ۰/۱ — وگرنه pydantic آن را رد می‌کند
+  const useBroker = $("#risk-use-broker");
+  if (useBroker && String(useBroker.checked) !== useBroker.dataset.original) {
+    patch.use_broker_equity = useBroker.checked;
+  }
   if (!Object.keys(patch).length) {
     note.className = "note";
     note.textContent = "تغییری نبود.";
@@ -492,6 +516,35 @@ $("#btn-save-risk").addEventListener("click", async () => {
 });
 
 // ------------------------------------------------------------------ account
+// کارت موجودی. بورس تهران تسویه T+۰/T+۱/T+۲ دارد، پس «موجودی» سه عدد است.
+function balanceCard(b, useBrokerEquity) {
+  const card = el("div", "card");
+  card.append(el("h3", "", "موجودی حساب"));
+
+  const grid = el("div", "sig-grid");
+  const cell = (k, v, cls) => {
+    const dv = el("div");
+    dv.append(el("span", "k", k));
+    dv.append(el("span", "v " + (cls || ""), v));
+    return dv;
+  };
+  grid.append(cell("دارایی مبنای ریسک", fmt(b.equity), "v-gain"));
+  grid.append(cell("قدرت خرید T+۰", fmt(b.buy_power_t0)));
+  grid.append(cell("قدرت خرید T+۲", fmt(b.buy_power_t2)));
+  grid.append(cell("نقد T+۰", fmt(b.cash_t0)));
+  grid.append(cell("نقد T+۲", fmt(b.cash_t2)));
+  if (b.margin_blocked) grid.append(cell("وجه تضمین بلوکه", fmt(b.margin_blocked), "v-loss"));
+  if (b.blocked) grid.append(cell("بلوکه‌شده", fmt(b.blocked), "v-loss"));
+  if (b.credit) grid.append(cell("اعتبار", fmt(b.credit)));
+  card.append(grid);
+
+  card.append(el("div", "note", useBrokerEquity
+    ? "اندازه‌گیری ریسک روی همین عدد انجام می‌شود."
+    : "برای استفاده از این عدد در اندازه‌گیری ریسک، در تب «ریسک» گزینه‌ی " +
+      "«دارایی حساب را از کارگزاری بخوان» را روشن کنید."));
+  return card;
+}
+
 async function loadAccount() {
   const box = $("#account");
   box.innerHTML = '<p class="empty">در حال خواندن حساب…</p>';
@@ -512,6 +565,10 @@ async function loadAccount() {
       box.append(el("div", "error", d.reason));
       return;
     }
+
+    // موجودی قبل از پوزیشن‌ها می‌آید — حساب بدون پوزیشن هم موجودی دارد
+    if (d.balance) box.append(balanceCard(d.balance, d.use_broker_equity));
+
     if (!d.positions.length) {
       box.append(el("p", "empty", "پوزیشن باز آپشنی ندارید."));
       return;

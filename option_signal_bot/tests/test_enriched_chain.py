@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from brokers.base import AccountDataSource, OptionContractSpec
+from brokers.base import AccountBalance, AccountDataSource, OptionContractSpec
 from data.enriched_option_chain import BrokerEnrichedOptionChain
 from data.tsetmc_option_chain_client import FilePayloadSource, TsetmcOptionChainClient
 
@@ -33,6 +33,9 @@ class FakeAccount(AccountDataSource):
 
     def get_positions(self):
         return []
+
+    def get_balance(self) -> AccountBalance:
+        return AccountBalance()
 
     def get_underlying_limit(self, base_isin, end_date):
         raise NotImplementedError

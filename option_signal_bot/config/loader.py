@@ -52,7 +52,10 @@ def default_settings() -> dict[str, Any]:
             "dedupe_window_minutes": 60,
             "min_confidence": None,
         },
-        "risk": {},
+        # `use_broker_equity` روشن = دارایی حساب از کارگزاری خوانده
+        # می‌شود، جای عدد دستیِ `account_equity` که سریع کهنه می‌شود.
+        # پیش‌فرض خاموش، تا رفتار فعلی کسی بی‌خبر عوض نشود.
+        "risk": {"use_broker_equity": False},
         # خالی = همه استراتژی‌های ثبت‌شده با پارامترهای پیش‌فرض خودشان
         "strategies": {},
         "notifiers": {
@@ -160,14 +163,25 @@ def resolve_path(value: str | Path, root: Path | None = None) -> Path:
     return path if path.is_absolute() else (root or PROJECT_ROOT) / path
 
 
-def build_dataclass(cls: type[T], values: dict[str, Any], label: str = "") -> T:
+def build_dataclass(
+    cls: type[T],
+    values: dict[str, Any],
+    label: str = "",
+    ignore: set[str] | None = None,
+) -> T:
     """ساخت یک dataclass از دیکشنری تنظیمات، با نادیده‌گرفتن کلیدهای ناشناخته.
 
     یک کلید اضافه یا غلط‌املایی در yaml نباید کل ربات را با TypeError بخواباند؛
     فقط هشدار می‌دهیم تا در لاگ دیده شود.
+
+    Args:
+        ignore: کلیدهایی که **عمداً** فیلد این dataclass نیستند ولی در همان
+            بخش yaml می‌نشینند (مثل سوئیچ‌های رفتاری). بدون این، هشدارِ
+            «کلید ناشناخته» که برای گرفتن غلط‌املایی است، روی یک کلید
+            درست هم روشن می‌شود و اعتبارش را از دست می‌دهد.
     """
     field_names = {f.name for f in dataclasses.fields(cls)}  # type: ignore[arg-type]
-    unknown = sorted(set(values or {}) - field_names)
+    unknown = sorted(set(values or {}) - field_names - (ignore or set()))
     if unknown:
         logger.warning(
             "کلیدهای ناشناخته در بخش %s نادیده گرفته شدند: %s",

@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 
 from brokers import (
+    AccountBalance,
     AccountDataSource,
     BrokerAuthError,
     BrokerError,
@@ -81,6 +82,26 @@ LIMIT_PAYLOAD = {
     "lowLimitOpenPosition": 0,
     "sumOpenPositions": 400,
     "isRequestAllowed": True,
+}
+
+
+# شکل از سشن واقعیِ کشف‌شده می‌آید (GET /easy/api/money).
+MONEY_PAYLOAD = {
+    "t0": 5_000_000,
+    "t1": 7_000_000,
+    "t2": 12_000_000,
+    "buyPowerT0": 4_500_000,
+    "buyPowerT1": 6_500_000,
+    "buyPowerT2": 11_000_000,
+    "blockT2": 500_000,
+    "withdrawBlockT2": 0,
+    "marginBlock": 3_000_000,
+    "credit": 0,
+    "avandCredit": 0,
+    "walletWithdrawBalanceT0": 0,
+    "warrantValueCredit": 0,
+    "hamiBalance": 0,
+    "block": 900_000,
 }
 
 
@@ -380,3 +401,63 @@ def test_cookie_only_401_explains_the_missing_token():
 
     with pytest.raises(BrokerAuthError, match="authorization"):
         Cookie401().get_positions()
+
+
+# ----------------------------------------------------------------------
+# موجودی حساب
+# ----------------------------------------------------------------------
+def test_balance_maps_all_fields():
+    client = FakeClient({"/easy/api/money": MONEY_PAYLOAD})
+    balance = client.get_balance()
+
+    assert balance.cash_t0 == 5_000_000
+    assert balance.cash_t2 == 12_000_000
+    assert balance.buy_power_t2 == 11_000_000
+    assert balance.blocked == 900_000
+    assert balance.margin_blocked == 3_000_000
+    assert balance.raw is MONEY_PAYLOAD
+
+
+def test_equity_prefers_t2_buy_power():
+    """محافظه‌کارانه‌ترین تعریف: قدرت خرید T+۲."""
+    client = FakeClient({"/easy/api/money": MONEY_PAYLOAD})
+    assert client.get_balance().equity == 11_000_000
+
+
+def test_equity_falls_back_when_buy_power_missing():
+    """بعضی حساب‌ها `buyPowerT2` ندارند؛ نقدِ T+۲ جایگزین درستی است."""
+    payload = {k: v for k, v in MONEY_PAYLOAD.items() if k != "buyPowerT2"}
+    client = FakeClient({"/easy/api/money": payload})
+    assert client.get_balance().equity == 12_000_000
+
+
+def test_equity_never_negative():
+    """دارایی منفی به `RiskCalculator` تعداد قرارداد بی‌معنا می‌دهد."""
+    payload = {**MONEY_PAYLOAD, "buyPowerT2": -5_000_000, "t2": -1, "t0": -1}
+    assert FakeClient({"/easy/api/money": payload}).get_balance().equity == 0.0
+
+
+def test_balance_tolerates_missing_optional_fields():
+    """نبودِ `credit` یعنی «اعتباری نیست»، نه «شکل API عوض شده»."""
+    client = FakeClient({"/easy/api/money": {"t0": 1_000}})
+    balance = client.get_balance()
+    assert balance.cash_t0 == 1_000
+    assert balance.credit == 0.0
+    assert balance.equity == 1_000
+
+
+def test_balance_tolerates_unreadable_numbers():
+    payload = {**MONEY_PAYLOAD, "credit": "n/a", "marginBlock": None}
+    balance = FakeClient({"/easy/api/money": payload}).get_balance()
+    assert balance.credit == 0.0 and balance.margin_blocked == 0.0
+
+
+def test_balance_rejects_non_object_response():
+    """آرایه به‌جای شیء یعنی شکل API عوض شده — باید بلند باشد."""
+    client = FakeClient({"/easy/api/money": [1, 2, 3]})
+    with pytest.raises(BrokerError, match="money"):
+        client.get_balance()
+
+
+def test_empty_balance_has_zero_equity():
+    assert AccountBalance().equity == 0.0

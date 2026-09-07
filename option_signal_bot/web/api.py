@@ -123,6 +123,8 @@ class RiskUpdate(BaseModel):
     max_contracts: int | None = None
     stop_loss_pct: float | None = None
     take_profit_pct: float | None = None
+    #: دارایی از کارگزاری خوانده شود؟ (نیاز به broker.enabled)
+    use_broker_equity: bool | None = None
 
 
 # ----------------------------------------------------------------------
@@ -697,6 +699,13 @@ def get_account() -> dict[str, Any]:
                 **common,
             )
         positions = client.get_positions()
+        # موجودی جدا try می‌شود: اگر این endpoint در دسترس نباشد،
+        # پوزیشن‌ها که خوانده شده‌اند نباید با آن از دست بروند.
+        try:
+            balance = client.get_balance()
+        except Exception as exc:  # موجودی نباید پوزیشن‌ها را ببرد
+            logger.warning("خواندن موجودی حساب ناموفق بود: %s", exc)
+            balance = None
     except Exception as exc:  # noqa: BLE001 - پیام به UI می‌رود، داشبورد نمی‌خوابد
         logger.warning("خواندن حساب کارگزاری ناموفق بود: %s", exc)
         return {"enabled": True, "reason": str(exc), "positions": []}
@@ -704,6 +713,24 @@ def get_account() -> dict[str, Any]:
     return {
         "enabled": True,
         "reason": None,
+        "balance": (
+            None
+            if balance is None
+            else {
+                "equity": balance.equity,
+                "cash_t0": balance.cash_t0,
+                "cash_t1": balance.cash_t1,
+                "cash_t2": balance.cash_t2,
+                "buy_power_t0": balance.buy_power_t0,
+                "buy_power_t2": balance.buy_power_t2,
+                "blocked": balance.blocked,
+                "margin_blocked": balance.margin_blocked,
+                "credit": balance.credit,
+            }
+        ),
+        "use_broker_equity": bool(
+            section(settings, "risk").get("use_broker_equity", False)
+        ),
         "positions": [
             {
                 "symbol_name": p.symbol_name,

@@ -113,6 +113,41 @@ class UnderlyingLimit:
         return max(self.max_open_position - self.sum_open_positions, 0)
 
 
+@dataclass(frozen=True)
+class AccountBalance:
+    """موجودی و قدرت خرید حساب.
+
+    بورس تهران تسویه‌ی T+۰/T+۱/T+۲ دارد، پس «موجودی» یک عدد نیست بلکه سه
+    عدد است. برای اندازه‌گیری ریسک، `equity` عمداً روی **T+۲** بسته می‌شود:
+    محافظه‌کارانه‌ترین تعریف، چون پولی که هنوز تسویه نشده هم در آن هست ولی
+    وجه بلوکه‌شده کنار گذاشته می‌شود.
+
+    نام فیلدها مستقل از کارگزاری است؛ نگاشت در خودِ آداپتر انجام می‌شود.
+    """
+
+    cash_t0: float = 0.0
+    cash_t1: float = 0.0
+    cash_t2: float = 0.0
+    buy_power_t0: float = 0.0
+    buy_power_t1: float = 0.0
+    buy_power_t2: float = 0.0
+    #: وجه بلوکه‌شده (از جمله وجه تضمین موقعیت‌های باز آپشن)
+    blocked: float = 0.0
+    margin_blocked: float = 0.0
+    credit: float = 0.0
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    @property
+    def equity(self) -> float:
+        """دارایی قابل استفاده برای اندازه‌گیری ریسک.
+
+        قدرت خرید T+۲ اگر موجود باشد، وگرنه نقدِ T+۲. هرگز منفی برنمی‌گردد:
+        `RiskCalculator` با دارایی منفی تعداد قرارداد بی‌معنا می‌دهد.
+        """
+        value = self.buy_power_t2 or self.cash_t2 or self.cash_t0
+        return max(float(value), 0.0)
+
+
 # ----------------------------------------------------------------------
 # قرارداد
 # ----------------------------------------------------------------------
@@ -129,6 +164,10 @@ class AccountDataSource(ABC):
     @abstractmethod
     def get_positions(self) -> list[OptionPosition]:
         """موقعیت‌های باز آپشن."""
+
+    @abstractmethod
+    def get_balance(self) -> AccountBalance:
+        """موجودی و قدرت خرید حساب."""
 
     @abstractmethod
     def get_contract_spec(self, symbol_isin: str) -> OptionContractSpec:
