@@ -94,6 +94,29 @@ def default_settings() -> dict[str, Any]:
             # تعطیلی اضطراریِ اعلام‌شده که هنوز در تاریخچه نیامده (YYYY-MM-DD)
             "extra_holidays": [],
         },
+        # پایش سلامت و گزارش دوره‌ای.
+        #
+        # هشدار سلامت پیش‌فرض **روشن** است چون خرابی‌هایی را می‌گیرد که
+        # بی‌صدا هستند (قطعی داده، استراتژی مرده، سکوت طولانی) و ربات
+        # در همه‌شان «سالم» به نظر می‌رسد.
+        #
+        # گزارش دوره‌ای پیش‌فرض خاموش است: پیام دوره‌ای فرستادن باید
+        # انتخاب صریح کاربر باشد، نه اتفاقی.
+        "monitoring": {
+            "health_enabled": True,
+            "periodic_report_enabled": False,
+            "alert_cooldown_hours": 6.0,
+            "alert_state_path": "var/health_alerts.json",
+            "report_state_path": "var/report_schedule.json",
+            "thresholds": {
+                "drought_warning_days": 3,
+                "drought_critical_days": 7,
+                "data_warning_failures": 2,
+                "data_critical_failures": 5,
+                "strategy_error_threshold": 3,
+                "missing_quote_ratio": 0.8,
+            },
+        },
         "backtest": {
             "history_days": 180,
             "horizon_days": 10,

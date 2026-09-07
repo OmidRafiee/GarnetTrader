@@ -131,6 +131,29 @@ trading_calendar:
   # تعطیلی اضطراریِ اعلام‌شده که هنوز در تاریخچه نیامده (YYYY-MM-DD)
   extra_holidays: []
 
+# پایش سلامت و گزارش دوره‌ای.
+#
+# هشدار سلامت پیش‌فرض روشن است چون خرابی‌هایی را می‌گیرد که بی‌صدا
+# هستند (قطعی داده، استراتژی مرده، سکوت طولانی) و ربات در همه‌شان
+# «سالم» به نظر می‌رسد.
+monitoring:
+  health_enabled: true
+  # گزارش دوره‌ای پیش‌فرض خاموش است: پیام دوره‌ای فرستادن باید
+  # انتخاب صریح کاربر باشد. به notifiers.telegram نیاز دارد.
+  periodic_report_enabled: false
+  # یک هشدار تا این مدت تکرار نمی‌شود (تشدید وضعیت، این را می‌شکند)
+  alert_cooldown_hours: 6.0
+  alert_state_path: var/health_alerts.json
+  report_state_path: var/report_schedule.json
+  thresholds:
+    drought_warning_days: 3
+    drought_critical_days: 7
+    # شکست «متوالی» منبع داده؛ یک تایم‌اوت گذرا هشدار نیست
+    data_warning_failures: 2
+    data_critical_failures: 5
+    strategy_error_threshold: 3
+    missing_quote_ratio: 0.8
+
 backtest:
   history_days: 180
   horizon_days: 10

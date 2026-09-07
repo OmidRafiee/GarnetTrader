@@ -62,6 +62,19 @@ class SignalGenerator:
         #: در حالی که یک پاسخ همه‌ی دارایی‌ها را دارد.
         self._holdings: dict[str, int] | None = None
 
+        # ------------------------------------------------------------------
+        # شمارنده‌های آخرین پاس — برای پایش سلامت.
+        #
+        # این کلاس عمداً خطای یک نماد یا یک استراتژی را می‌بلعد تا بقیه
+        # بمانند؛ رفتار درستی است، ولی یعنی یک استراتژیِ **کاملاً مرده**
+        # هم بی‌صدا نادیده گرفته می‌شود. پس شکست‌ها شمرده می‌شوند تا
+        # `HealthMonitor` بتواند سکوت را بشکند.
+        # ------------------------------------------------------------------
+        #: نام نمادهایی که در آخرین پاس شکست خوردند
+        self.failed_symbols: list[str] = []
+        #: نام استراتژی → تعداد خطا در آخرین پاس
+        self.strategy_errors: dict[str, int] = {}
+
     def reset_holdings_cache(self) -> None:
         """کش دارایی را خالی می‌کند تا پاس بعدی از نو بخواند."""
         self._holdings = None
@@ -91,13 +104,28 @@ class SignalGenerator:
         # دارایی بین نمادهای یک پاس مشترک است، ولی بین پاس‌ها نه — کاربر
         # ممکن است وسط دو پاس سهم بخرد یا بفروشد.
         self.reset_holdings_cache()
+        self.failed_symbols = []
+        self.strategy_errors = {}
+
         signals: list[Signal] = []
         for symbol in symbols or self.config.symbols:
             try:
                 signals.extend(self.generate_for_symbol(symbol))
             except Exception:  # یک نماد خراب، حلقه اصلی را نکشد
                 logger.exception("تولید سیگنال برای نماد %s شکست خورد.", symbol)
+                self.failed_symbols.append(symbol)
         return signals
+
+    @property
+    def all_symbols_failed(self) -> bool:
+        """آیا **همه‌ی** نمادهای آخرین پاس شکست خوردند؟
+
+        یک نماد خراب طبیعی است (نماد متوقف، داده‌ی ناقص). شکست همه یعنی
+        منبع داده قطع است — و آن، خرابیِ بی‌صدایی است که ربات را «سالم»
+        نشان می‌دهد.
+        """
+        planned = list(self.config.symbols)
+        return bool(planned) and len(self.failed_symbols) >= len(planned)
 
     def generate_for_symbol(self, symbol: str) -> list[Signal]:
         """ساخت context و اجرای همه استراتژی‌ها روی یک نماد پایه."""
@@ -109,6 +137,9 @@ class SignalGenerator:
                 raw_signals = strategy.generate(context)
             except Exception:
                 logger.exception("استراتژی %s روی %s خطا داد.", strategy.name, symbol)
+                self.strategy_errors[strategy.name] = (
+                    self.strategy_errors.get(strategy.name, 0) + 1
+                )
                 continue
 
             collected.extend(self._process_batch(raw_signals))

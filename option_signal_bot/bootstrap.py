@@ -35,6 +35,8 @@ from data.tsetmc_option_chain_client import (
     TsetmcOptionChainClient,
 )
 from market.trading_calendar import TradingCalendar, format_jalali
+from monitoring.health import AlertThrottle, HealthMonitor
+from monitoring.periodic_report import ReportSchedule
 from notifiers.base_notifier import BaseNotifier
 from notifiers.console_notifier import ConsoleNotifier
 from notifiers.telegram_commands import (
@@ -447,6 +449,33 @@ def build_signal_log(settings: dict[str, Any], dry_run: bool = False) -> SignalL
     return SignalLog(
         db_path=resolve_path(config.get("sqlite_path", "var/signals.db")),
         jsonl_path=resolve_path(jsonl) if jsonl else None,
+    )
+
+
+def build_health_monitor(settings: dict[str, Any]) -> HealthMonitor | None:
+    """پایشگر سلامت، یا `None` اگر خاموش باشد."""
+    config = section(settings, "monitoring")
+    if not config.get("health_enabled", True):
+        return None
+    return HealthMonitor(config.get("thresholds") or {})
+
+
+def build_alert_throttle(settings: dict[str, Any]) -> AlertThrottle:
+    """ضدهرزنامه‌ی هشدارها. هشداری که هر پاس تکرار شود، خوانده نمی‌شود."""
+    config = section(settings, "monitoring")
+    return AlertThrottle(
+        path=resolve_path(config.get("alert_state_path", "var/health_alerts.json")),
+        cooldown_hours=float(config.get("alert_cooldown_hours", 6.0)),
+    )
+
+
+def build_report_schedule(settings: dict[str, Any]) -> ReportSchedule | None:
+    """زمان‌بندی گزارش دوره‌ای، یا `None` اگر خاموش باشد."""
+    config = section(settings, "monitoring")
+    if not config.get("periodic_report_enabled", False):
+        return None
+    return ReportSchedule(
+        path=resolve_path(config.get("report_state_path", "var/report_schedule.json"))
     )
 
 
