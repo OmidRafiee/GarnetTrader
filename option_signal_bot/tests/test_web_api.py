@@ -302,3 +302,23 @@ def test_toggling_broker_equity_keeps_other_risk_values(client):
 
     assert after["account_equity"] == before["account_equity"]
     assert after["max_contracts"] == before["max_contracts"]
+
+
+def test_structure_kinds_match_the_scanner(client):
+    """داشبورد فهرستش را از سرور می‌گیرد؛ اگر عقب بیفتد، ساختار تازه دیده نمی‌شود."""
+    from strategies.scanner import SCAN_KINDS
+
+    body = client.get("/api/structures/kinds").json()
+    keys = [k["key"] for k in body["kinds"]]
+    assert keys == list(SCAN_KINDS)
+    assert all(k["label"].strip() for k in body["kinds"])
+
+
+def test_unknown_structure_kind_is_rejected(client):
+    res = client.get("/api/structures", params={"underlying": "خودرو", "kind": "nope"})
+    assert res.status_code == 400
+
+
+def test_rank_keys_are_exposed(client):
+    body = client.get("/api/structures/rank-keys").json()
+    assert any(k["key"] == "roi" for k in body["keys"])

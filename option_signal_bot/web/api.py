@@ -367,7 +367,13 @@ async def scan_structures(
 
     ⚠️ خروجی فقط تحلیل و نقشه‌ی سفارش است؛ هیچ سفارشی ثبت نمی‌شود.
     """
-    from strategies.scanner import RANK_KEYS, ScanFilters, StrategyScanner, rank_strategies
+    from strategies.scanner import (
+        RANK_KEYS,
+        SCAN_KINDS,
+        ScanFilters,
+        StrategyScanner,
+        rank_strategies,
+    )
 
     if rank_by not in RANK_KEYS:
         raise HTTPException(
@@ -387,10 +393,12 @@ async def scan_structures(
         scanner = StrategyScanner(
             ScanFilters(min_open_interest=min_open_interest)
         )
+        # `scan_all` تنها منبع حقیقتِ فهرست ساختارها است. نگه‌داشتن یک
+        # دیکشنری موازی اینجا یعنی اسکنر تازه اضافه می‌شود ولی داشبورد
+        # هرگز نشانش نمی‌دهد — و هیچ تستی هم متوجه نمی‌شود.
         scans = {
-            "long_straddle": scanner.scan_long_straddle,
-            "collar": scanner.scan_collar,
-            "iron_condor": scanner.scan_iron_condor,
+            name: getattr(scanner, f"scan_{name}")
+            for name in SCAN_KINDS
         }
         wanted = scans if kind == "all" else {kind: scans.get(kind)}
         if None in wanted.values():
@@ -434,6 +442,18 @@ def get_rank_keys() -> dict[str, Any]:
             {"key": k, "bigger_is_better": v} for k, v in sorted(RANK_KEYS.items())
         ]
     }
+
+
+@app.get("/api/structures/kinds")
+def get_structure_kinds() -> dict[str, Any]:
+    """ساختارهای قابل اسکن، با برچسب فارسی.
+
+    داشبورد فهرستش را از اینجا می‌گیرد تا با اسکنرهای واقعی هم‌گام بماند
+    و یک ساختار تازه بی‌صدا از UI جا نماند.
+    """
+    from strategies.scanner import SCAN_KINDS
+
+    return {"kinds": [{"key": k, "label": v} for k, v in SCAN_KINDS.items()]}
 
 
 @app.get("/api/report")

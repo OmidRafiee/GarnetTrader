@@ -133,6 +133,19 @@ class StrategyPayoff:
     required_margin: float | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
+    #: آیا پایه‌ها **سررسید یکسان** دارند؟
+    #:
+    #: منحنی سودِ این کلاس بر ارزش ذاتیِ سررسید بنا شده، که فقط برای
+    #: ساختارهای هم‌سررسید درست است. در اسپرد تقویمی وقتی پایه‌ی نزدیک
+    #: منقضی می‌شود، پایه‌ی دور **هنوز ارزش زمانی دارد** — و همان، کلِ
+    #: سودِ ساختار است. صفر فرض کردنش نه «دست‌کم گرفتن»، بلکه یک عددِ
+    #: غلط است: یک اسپرد تقویمیِ سالم را زیانِ کامل نشان می‌دهد.
+    #:
+    #: `False` یعنی `max_profit`، `max_loss`، `roi`، `risk_reward` و
+    #: `profit_zone` به‌جای عددِ غلط، `None` («نمی‌دانیم») برمی‌گردانند.
+    #: هزینه‌ی ورود (`net_cost`، `net_premium`) دقیق می‌ماند.
+    single_expiry: bool = True
+
     # ------------------------------------------------------------------
     @property
     def quantity(self) -> int:
@@ -238,15 +251,20 @@ class StrategyPayoff:
         """حداکثر سود؛ `None` یعنی **نامحدود**.
 
         `None` عمداً با صفر فرق دارد: لانگ کال سود نامحدود دارد، ولی
-        صفر یعنی هیچ سودی ممکن نیست.
+        صفر یعنی هیچ سودی ممکن نیست. در ساختار چندسررسیدی هم `None`
+        برمی‌گردد — آن‌جا «نمی‌دانیم».
         """
+        if not self.single_expiry:
+            return None
         if self._has_unlimited_upside():
             return None
         return self._extreme(maximize=True)
 
     @property
     def max_loss(self) -> float | None:
-        """حداکثر زیان (عدد منفی)؛ `None` یعنی **نامحدود**."""
+        """حداکثر زیان (عدد منفی)؛ `None` یعنی **نامحدود** یا نامعلوم."""
+        if not self.single_expiry:
+            return None
         if self._has_unlimited_downside():
             return None
         return self._extreme(maximize=False)
@@ -307,6 +325,10 @@ class StrategyPayoff:
     @property
     def breakevens(self) -> list[float]:
         """نقاط سر به سر، با جستجوی تغییر علامت روی منحنی."""
+        # منحنی سررسید برای ساختار چندسررسیدی معنا ندارد، پس نقطه‌ی
+        # سربه‌سرش هم ندارد.
+        if not self.single_expiry:
+            return []
         center = self.underlying_price or self._center_strike()
         if center <= 0:
             return []
@@ -462,6 +484,7 @@ class StrategyPayoff:
             "min_open_interest": self.min_open_interest,
             "max_relative_spread": self.max_relative_spread,
             "has_leg_risk": self.has_leg_risk,
+            "single_expiry": self.single_expiry,
             **self.metadata,
         }
 

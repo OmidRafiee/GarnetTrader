@@ -852,13 +852,14 @@ function depthLabel(depth) {
 }
 
 // ------------------------------------------------------------------ structures
-const KIND_LABEL = {
-  long_straddle: "لانگ استردل",
-  collar: "کالر",
-  iron_condor: "آیرون کاندور",
-};
+// از /api/structures/kinds پر می‌شود تا با اسکنرهای واقعی هم‌گام بماند.
+// فهرست دستی یعنی یک ساختار تازه بی‌صدا از UI جا می‌ماند.
+const KIND_LABEL = {};
 
-const money = (v) => (v === null || v === undefined ? "نامحدود" : fmt(v));
+// `null` در ساختار هم‌سررسید یعنی **نامحدود** (لانگ کال)، ولی در
+// ساختار چندسررسیدی یعنی **نامعلوم**. یکی گرفتنشان گمراه‌کننده است.
+const money = (v, unknown = false) =>
+  v === null || v === undefined ? (unknown ? "نامعلوم" : "نامحدود") : fmt(v);
 
 async function initStructures() {
   // نمادها از همان لیست تحت رصد
@@ -873,6 +874,23 @@ async function initStructures() {
       });
     }
   } catch { /* تب خودش خطا را نشان می‌دهد */ }
+
+  // ساختارها را از سرور بگیر و هم dropdown هم برچسب‌ها را پر کن
+  try {
+    const d = await api("/api/structures/kinds");
+    const sel = $("#st-kind");
+    const kinds = d.kinds || [];
+    kinds.forEach((k) => { KIND_LABEL[k.key] = k.label; });
+
+    // فقط یک بار: گزینه‌ی «همه» می‌ماند و بقیه از سرور می‌آید
+    if (sel.options.length <= 1) {
+      kinds.forEach((k) => {
+        const o = el("option", "", k.label);
+        o.value = k.key;
+        sel.append(o);
+      });
+    }
+  } catch { /* dropdown با گزینه‌ی «همه» کار می‌کند */ }
 
   try {
     const d = await api("/api/structures/rank-keys");
@@ -962,6 +980,12 @@ function structureCard(s) {
     warn.title = "کارگزاری سفارش چندپایه اتمیک ندارد؛ پایه‌ها جدا ثبت می‌شوند.";
     head.append(warn);
   }
+  if (s.single_expiry === false) {
+    const warn = el("span", "chip chip-warn", "سود تقریبی نیست — نامعلوم");
+    warn.title = s.approximation_note ||
+      "دو سررسید دارد؛ منحنی سود در سررسید برایش معنا ندارد.";
+    head.append(warn);
+  }
   card.append(head);
 
   const grid = el("div", "sig-grid");
@@ -971,8 +995,9 @@ function structureCard(s) {
     d.append(el("span", "v " + (cls || ""), v));
     return d;
   };
-  grid.append(cell("حداکثر سود", money(s.max_profit), "v-gain"));
-  grid.append(cell("حداکثر زیان", money(s.max_loss), "v-loss"));
+  const unknown = s.single_expiry === false;
+  grid.append(cell("حداکثر سود", money(s.max_profit, unknown), "v-gain"));
+  grid.append(cell("حداکثر زیان", money(s.max_loss, unknown), "v-loss"));
   grid.append(cell("ROI", s.roi !== null ? fmt(s.roi * 100, 1) + "٪" : "—"));
   grid.append(cell("ریسک/ریوارد", s.risk_reward !== null ? fmt(s.risk_reward, 2) : "—"));
   grid.append(cell("سرمایه لازم", money(s.required_capital)));

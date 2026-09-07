@@ -45,6 +45,12 @@ class ScanFilters:
     require_both_quotes: bool = True
     min_volume: int = 0
     commission_rate: float = DEFAULT_COMMISSION_RATE
+    #: عرض اسپرد عمودی نسبت به قیمت پایه. اسپرد بیش از حد پهن عملاً یک
+    #: پوزیشن تک‌پایه است با هزینه‌ی یک پایه‌ی اضافه.
+    max_spread_width_pct: float = 0.30
+    #: فاصله‌ی حداقلِ دو سررسید در اسپرد تقویمی (روز). اگر دو سررسید
+    #: تقریباً هم‌زمان باشند، ساختار ارزش زمانی معناداری ندارد.
+    min_calendar_gap_days: int = 14
 
     def accepts(self, contract: OptionContract, today: date) -> bool:
         """آیا این قرارداد قابل استفاده در یک ساختار است؟"""
@@ -279,15 +285,280 @@ class StrategyScanner:
         return results[:limit]
 
     # ------------------------------------------------------------------
+    # اسپردهای عمودی (هم‌سررسید، دو استرایک)
+    # ------------------------------------------------------------------
+    def _vertical_spreads(
+        self,
+        chain: OptionChain,
+        option_type: str,
+        long_is_lower: bool,
+        strategy_type: str,
+        today: date,
+        limit: int,
+        max_width_pct: float,
+    ) -> list[StrategyPayoff]:
+        """موتور مشترک هر چهار اسپرد عمودی.
+
+        چهار ساختار (bull call، bear call، bull put، bear put) فقط در دو
+        چیز فرق دارند: نوع قرارداد، و اینکه پایه‌ی خریداری‌شده استرایک
+        پایین‌تر است یا بالاتر. نوشتنشان جدا یعنی چهار نسخه از همان منطق
+        که با هم واگرا می‌شوند.
+
+        Args:
+            long_is_lower: `True` یعنی استرایک پایین‌تر خریده می‌شود.
+            max_width_pct: عرض اسپرد نسبت به قیمت پایه. اسپرد بیش از حد
+                پهن، عملاً یک پوزیشن تک‌پایه با هزینه‌ی بیشتر است.
+        """
+        spot = chain.spot_price
+        results: list[StrategyPayoff] = []
+
+        for expiry, contracts in self._by_expiry(self._usable(chain, today)).items():
+            strikes = sorted(
+                (c for c in contracts if c.option_type == option_type),
+                key=lambda c: c.strike,
+            )
+            if len(strikes) < 2:
+                continue
+
+            for lower, upper in combinations(strikes, 2):
+                if lower.strike >= upper.strike:
+                    continue
+                width = upper.strike - lower.strike
+                if spot > 0 and width / spot > max_width_pct:
+                    continue
+
+                long_leg, short_leg = (
+                    (lower, upper) if long_is_lower else (upper, lower)
+                )
+                legs = [
+                    leg_from_contract(long_leg, Side.BUY, role="لانگ"),
+                    leg_from_contract(short_leg, Side.SELL, role="شورت"),
+                ]
+                # سقف ارزش اسپرد: عرض × اندازه‌ی قرارداد. اسپرد عمودی
+                # هیچ‌وقت بیش از این نمی‌ارزد.
+                ceiling = width * max(leg.contract_size for leg in legs)
+
+                payoff = StrategyPayoff(
+                    strategy_type=strategy_type,
+                    underlying=chain.underlying,
+                    legs=legs,
+                    expiration=expiry,
+                    underlying_price=spot,
+                    commission_rate=self.filters.commission_rate,
+                    metadata={
+                        "long_strike": long_leg.strike,
+                        "short_strike": short_leg.strike,
+                        "spread_width": width,
+                        "max_spread_value": ceiling,
+                        "is_debit": None,  # پایین‌تر پر می‌شود
+                    },
+                )
+
+                # گیت درستی: هزینه‌ی یک اسپرد بدهکار نمی‌تواند از عرضش
+                # بیشتر باشد، و یک اسپرد بستانکار نمی‌تواند اعتباری بیشتر
+                # از عرض بگیرد. هر دو حالت یعنی مظنه‌ها ناسازگارند (بازار
+                # رقیق)، نه اینکه فرصت آربیتراژ پیدا شده باشد.
+                if abs(payoff.net_premium) > ceiling:
+                    continue
+                # سودِ صفر یا منفی یعنی ساختار بی‌معنا است
+                if payoff.max_profit is not None and payoff.max_profit <= 0:
+                    continue
+
+                payoff.metadata["is_debit"] = payoff.net_premium > 0
+                results.append(payoff)
+
+        results.sort(key=lambda s: -(s.roi or 0))
+        return results[:limit]
+
+    def scan_bull_call_spread(
+        self, chain: OptionChain, today: date | None = None, limit: int = 20
+    ) -> list[StrategyPayoff]:
+        """خرید کالِ پایین‌تر + فروش کالِ بالاتر. صعودی، بدهکار.
+
+        سود و زیان هر دو **محدود**اند — همین چیزی است که آن را از خرید
+        کالِ تنها متمایز می‌کند: هزینه‌ی کمتر، در ازای سقف سود.
+        """
+        return self._vertical_spreads(
+            chain,
+            option_type="call",
+            long_is_lower=True,
+            strategy_type="bull_call_spread",
+            today=today or date.today(),
+            limit=limit,
+            max_width_pct=self.filters.max_spread_width_pct,
+        )
+
+    def scan_bear_call_spread(
+        self, chain: OptionChain, today: date | None = None, limit: int = 20
+    ) -> list[StrategyPayoff]:
+        """فروش کالِ پایین‌تر + خرید کالِ بالاتر. نزولی/خنثی، بستانکار."""
+        return self._vertical_spreads(
+            chain,
+            option_type="call",
+            long_is_lower=False,
+            strategy_type="bear_call_spread",
+            today=today or date.today(),
+            limit=limit,
+            max_width_pct=self.filters.max_spread_width_pct,
+        )
+
+    def scan_bull_put_spread(
+        self, chain: OptionChain, today: date | None = None, limit: int = 20
+    ) -> list[StrategyPayoff]:
+        """فروش پوتِ بالاتر + خرید پوتِ پایین‌تر. صعودی/خنثی، بستانکار."""
+        return self._vertical_spreads(
+            chain,
+            option_type="put",
+            long_is_lower=True,
+            strategy_type="bull_put_spread",
+            today=today or date.today(),
+            limit=limit,
+            max_width_pct=self.filters.max_spread_width_pct,
+        )
+
+    def scan_bear_put_spread(
+        self, chain: OptionChain, today: date | None = None, limit: int = 20
+    ) -> list[StrategyPayoff]:
+        """خرید پوتِ بالاتر + فروش پوتِ پایین‌تر. نزولی، بدهکار."""
+        return self._vertical_spreads(
+            chain,
+            option_type="put",
+            long_is_lower=False,
+            strategy_type="bear_put_spread",
+            today=today or date.today(),
+            limit=limit,
+            max_width_pct=self.filters.max_spread_width_pct,
+        )
+
+    # ------------------------------------------------------------------
+    # اسپرد تقویمی (هم‌استرایک، دو سررسید)
+    # ------------------------------------------------------------------
+    def scan_calendar_spread(
+        self, chain: OptionChain, today: date | None = None, limit: int = 20
+    ) -> list[StrategyPayoff]:
+        """فروش سررسید نزدیک + خرید سررسید دور، هم‌استرایک.
+
+        ⚠️ **محدودیت مهم و عمدی — این را جدی بگیرید.**
+
+        بقیه‌ی ساختارهای این اسکنر یک سررسید دارند، پس منحنی سود در
+        سررسید دقیق است. اسپرد تقویمی این‌طور نیست: وقتی پایه‌ی نزدیک
+        منقضی می‌شود، پایه‌ی دور **هنوز ارزش زمانی دارد** — و کل سودِ این
+        ساختار همان است.
+
+        `StrategyPayoff` ارزش ذاتیِ سررسید را حساب می‌کند، پس برای این
+        ساختار `max_profit` و `roi` را **دست‌کم** می‌گیرد (ارزش زمانیِ
+        باقی‌مانده را صفر فرض می‌کند). محاسبه‌ی درستش به قیمت‌گذاری
+        پایه‌ی دور در تاریخ سررسید نزدیک نیاز دارد، یعنی یک فرض IV آینده.
+
+        پس این اسکنر:
+        * `net_debit` را می‌دهد (هزینه‌ی ورود — این دقیق است)،
+        * ساختارها را بر اساس **هزینه**، نه ROI، مرتب می‌کند،
+        * و با `payoff_is_approximate: True` علامت می‌زند تا هیچ‌کس این
+          ROI را با ROI ساختارهای دیگر مقایسه نکند.
+
+        عددِ خوش‌بینانه‌ی حدسی ندادن، بهتر از عددی است که قابل مقایسه به
+        نظر بیاید ولی نباشد.
+        """
+        today = today or date.today()
+        spot = chain.spot_price
+        usable = self._usable(chain, today)
+        results: list[StrategyPayoff] = []
+
+        for option_type in ("call", "put"):
+            # گروه‌بندی بر اساس استرایک، چون این ساختار **بین** سررسیدها است
+            by_strike: dict[float, list[OptionContract]] = {}
+            for contract in usable:
+                if contract.option_type == option_type:
+                    by_strike.setdefault(contract.strike, []).append(contract)
+
+            for strike, contracts in by_strike.items():
+                if len(contracts) < 2:
+                    continue
+                ordered = sorted(contracts, key=lambda c: c.expiry)
+
+                for near, far in combinations(ordered, 2):
+                    gap = (far.expiry - near.expiry).days
+                    if gap < self.filters.min_calendar_gap_days:
+                        continue
+
+                    legs = [
+                        leg_from_contract(near, Side.SELL, role="شورت نزدیک"),
+                        leg_from_contract(far, Side.BUY, role="لانگ دور"),
+                    ]
+                    payoff = StrategyPayoff(
+                        strategy_type="calendar_spread",
+                        underlying=chain.underlying,
+                        legs=legs,
+                        # سررسیدِ **نزدیک**: تاریخی که در آن تصمیم گرفته
+                        # می‌شود. پایه‌ی دور بعد از آن هم زنده است.
+                        expiration=near.expiry,
+                        underlying_price=spot,
+                        commission_rate=self.filters.commission_rate,
+                        # دو سررسید ⇒ منحنی سررسید معنا ندارد. معیارهای
+                        # وابسته به آن `None` می‌شوند، نه عددِ غلط.
+                        single_expiry=False,
+                        metadata={
+                            "strike": strike,
+                            "option_type": option_type,
+                            "near_expiry": near.expiry.isoformat(),
+                            "far_expiry": far.expiry.isoformat(),
+                            "gap_days": gap,
+                            # پرچم صداقت: منحنی سود این ساختار تقریبی است
+                            "payoff_is_approximate": True,
+                            "approximation_note": (
+                                "سود در سررسید نزدیک به ارزش زمانیِ باقی‌مانده‌ی "
+                                "پایه‌ی دور بستگی دارد، که اینجا صفر فرض شده. "
+                                "پس max_profit و ROI دست‌کم گرفته شده‌اند و با "
+                                "ساختارهای هم‌سررسید قابل مقایسه نیستند."
+                            ),
+                        },
+                    )
+
+                    # یک اسپرد تقویمیِ درست **بدهکار** است: سررسید دورتر
+                    # همیشه ارزش زمانی بیشتری دارد. بستانکار بودن یعنی
+                    # مظنه‌ها ناسازگارند (بازار رقیق)، نه یک فرصت.
+                    if payoff.net_premium <= 0:
+                        continue
+
+                    results.append(payoff)
+
+        # بر اساس **هزینه** مرتب می‌شود، نه ROI: ROI اینجا دست‌کم گرفته
+        # شده و مرتب‌سازی با آن گمراه‌کننده است.
+        results.sort(key=lambda s: s.net_cost)
+        return results[:limit]
+
+    # ------------------------------------------------------------------
     def scan_all(
         self, chain: OptionChain, today: date | None = None, limit: int = 10
     ) -> dict[str, list[StrategyPayoff]]:
-        """همه‌ی اسکنرها روی یک زنجیره."""
+        """همه‌ی اسکنرها روی یک زنجیره.
+
+        از `SCAN_KINDS` ساخته می‌شود، نه از یک فهرست دستی: افزودن اسکنر
+        تازه نباید نیاز به ویرایش این تابع داشته باشد (وگرنه یک روز
+        اسکنری اضافه می‌شود که هیچ‌جا دیده نمی‌شود).
+        """
         return {
-            "long_straddle": self.scan_long_straddle(chain, today, limit),
-            "collar": self.scan_collar(chain, today, limit),
-            "iron_condor": self.scan_iron_condor(chain, today, limit),
+            name: getattr(self, f"scan_{name}")(chain, today, limit)
+            for name in SCAN_KINDS
         }
+
+
+# ----------------------------------------------------------------------
+# فهرست ساختارها — تنها منبع حقیقت
+# ----------------------------------------------------------------------
+#: نام اسکنر → برچسب فارسی. کلیدها همان پسوند متدهای `scan_*` هستند، و
+#: `scan_all` هم از همین فهرست ساخته می‌شود. پس افزودن یک ساختار تازه =
+#: یک متد `scan_x` + یک ورودی اینجا، و داشبورد خودکار نشانش می‌دهد.
+SCAN_KINDS: dict[str, str] = {
+    "long_straddle": "لانگ استردل",
+    "collar": "کالر",
+    "iron_condor": "آیرون کاندور",
+    "bull_call_spread": "اسپرد صعودی کال",
+    "bear_call_spread": "اسپرد نزولی کال",
+    "bull_put_spread": "اسپرد صعودی پوت",
+    "bear_put_spread": "اسپرد نزولی پوت",
+    "calendar_spread": "اسپرد تقویمی",
+}
 
 
 # ----------------------------------------------------------------------
