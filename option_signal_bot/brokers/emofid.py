@@ -31,6 +31,7 @@ from brokers.base import (
     BrokerUnavailableError,
     OptionContractSpec,
     OptionPosition,
+    SharePosition,
     UnderlyingLimit,
 )
 
@@ -102,6 +103,7 @@ class EmofidAccountClient(AccountDataSource):
     """
 
     name = "emofid"
+    supports_share_positions = True
 
     def __init__(
         self,
@@ -365,6 +367,47 @@ class EmofidAccountClient(AccountDataSource):
             credit=_float(payload.get("credit")),
             raw=payload,
         )
+
+    def get_share_positions(self) -> list[SharePosition]:
+        """دارایی سهم (نه آپشن).
+
+        `GET /assetmodule/api/performance`
+
+        این پاسخ **کارنامه‌ی عملکرد** است، نه لیست دارایی؛ پس ردیفی هم دارد
+        که `asset` صفر است — سهمی که قبلاً داشتی و فروختی. آن‌ها فیلتر
+        می‌شوند: نگه‌داشتن‌شان یعنی Covered Call روی سهمی که نداری تأیید
+        شود، که کلِ هدفِ این شرط را از بین می‌برد.
+        """
+        payload = self._get("/assetmodule/api/performance")
+        if not isinstance(payload, dict):
+            raise BrokerError(
+                "پاسخ performance باید شیء باشد. شکل API عوض شده است."
+            )
+
+        items = payload.get("items")
+        if not isinstance(items, list):
+            raise BrokerError(
+                "پاسخ performance فیلد «items» را به‌شکل آرایه ندارد. "
+                "احتمالاً شکل API کارگزاری عوض شده."
+            )
+
+        positions = []
+        for row in items:
+            if not isinstance(row, dict):
+                continue
+            quantity = int(_float(row.get("asset")))
+            if quantity <= 0:
+                continue
+            positions.append(
+                SharePosition(
+                    symbol_isin=str(row.get("symbolIsin") or ""),
+                    symbol_name=str(row.get("symbolName") or ""),
+                    quantity=quantity,
+                    average_price=_float(row.get("totalBuyAveragePrice")),
+                    raw=row,
+                )
+            )
+        return positions
 
     def get_contract_spec(self, symbol_isin: str) -> OptionContractSpec:
         """مشخصات یک قرارداد.

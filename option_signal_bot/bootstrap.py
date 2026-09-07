@@ -300,6 +300,40 @@ def build_generator_config(settings: dict[str, Any]) -> GeneratorConfig:
     )
 
 
+def build_holdings_provider(account_source: Any | None):
+    """تابعِ «نام نماد → تعداد سهم»، یا `None` اگر در دسترس نباشد.
+
+    `None` برگرداندن مهم است و با «دیکشنری خالی» یکی نیست: اولی به
+    استراتژی می‌گوید «نمی‌دانم چه سهمی داری» و دومی «هیچ سهمی نداری».
+    شرط Covered Call بر همین تفاوت بنا شده.
+
+    کلیدها **نام فارسی نماد** است (مثل «خودرو») چون استراتژی‌ها با همان
+    کار می‌کنند؛ ISIN هم به‌عنوان کلید دوم گذاشته می‌شود تا اگر جایی با
+    ISIN پرسیده شد هم جواب بدهد.
+    """
+    if account_source is None:
+        return None
+    if not getattr(account_source, "supports_share_positions", False):
+        logger.info(
+            "آداپتر کارگزاری «%s» دارایی سهم نمی‌دهد؛ شرط مالکیت Covered Call "
+            "نامعلوم می‌ماند.",
+            getattr(account_source, "name", "?"),
+        )
+        return None
+
+    def provider() -> dict[str, int]:
+        holdings: dict[str, int] = {}
+        for position in account_source.get_share_positions():
+            if position.symbol_name:
+                holdings[position.symbol_name] = position.quantity
+            if position.symbol_isin:
+                holdings[position.symbol_isin] = position.quantity
+        logger.info("دارایی سهم خوانده شد: %d نماد.", len(holdings))
+        return holdings
+
+    return provider
+
+
 def build_generator(
     settings: dict[str, Any],
     market_data: MarketDataClient,
@@ -312,6 +346,7 @@ def build_generator(
         strategies=create_strategies(section(settings, "strategies")),
         risk_calculator=build_risk_calculator(settings, account_source),
         config=build_generator_config(settings),
+        holdings_provider=build_holdings_provider(account_source),
     )
 
 

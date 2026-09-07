@@ -114,6 +114,22 @@ class UnderlyingLimit:
 
 
 @dataclass(frozen=True)
+class SharePosition:
+    """دارایی سهم (نه آپشن) — برای شرطِ مالکیتِ Covered Call.
+
+    Covered Call یعنی فروش کال روی سهمی که **داری**. بدون سهم، همان معامله
+    یک کالِ لخت است: سود محدود به پرمیوم، زیان نامحدود. تفاوت‌شان یک
+    پارامتر نیست، دو پروفایل ریسکِ کاملاً متفاوت است.
+    """
+
+    symbol_isin: str
+    symbol_name: str
+    quantity: int
+    average_price: float = 0.0
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+
+@dataclass(frozen=True)
 class AccountBalance:
     """موجودی و قدرت خرید حساب.
 
@@ -168,6 +184,21 @@ class AccountDataSource(ABC):
     @abstractmethod
     def get_balance(self) -> AccountBalance:
         """موجودی و قدرت خرید حساب."""
+
+    #: آیا این آداپتر دارایی سهم را می‌دهد؟ مصرف‌کننده باید **قبل از**
+    #: تصمیم‌گیری این را ببیند: «لیست خالی» از یک آداپترِ ناتوان یعنی
+    #: «نمی‌دانم»، ولی از یک آداپترِ توانا یعنی «هیچ سهمی نداری». این دو
+    #: نباید یک‌جور فهمیده شوند — یکی باید سیگنال را نگه دارد و دیگری رد کند.
+    supports_share_positions: bool = False
+
+    def get_share_positions(self) -> list[SharePosition]:
+        """دارایی سهم (نه آپشن).
+
+        عمداً **abstract نیست**: هر کارگزاری‌ای این را نمی‌دهد و نبودش
+        نباید مانع پیاده‌سازی بقیه‌ی قرارداد شود. آداپتری که این را
+        پیاده می‌کند باید `supports_share_positions = True` بگذارد.
+        """
+        return []
 
     @abstractmethod
     def get_contract_spec(self, symbol_isin: str) -> OptionContractSpec:

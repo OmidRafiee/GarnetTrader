@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
@@ -45,6 +46,7 @@ class SignalGenerator:
         strategies: list[BaseStrategy],
         risk_calculator: RiskCalculator | None = None,
         config: GeneratorConfig | None = None,
+        holdings_provider: Callable[[], dict[str, int]] | None = None,
     ) -> None:
         self.market_data = market_data
         self.option_chain = option_chain
@@ -52,10 +54,43 @@ class SignalGenerator:
         self.risk_calculator = risk_calculator or RiskCalculator()
         self.config = config or GeneratorConfig()
         self._last_emitted: dict[str, datetime] = {}
+        #: تابعی که «نام نماد → تعداد سهم» می‌دهد. عمداً یک callable است و
+        #: نه کلاینت کارگزاری: این لایه هم مثل استراتژی‌ها نباید بداند
+        #: کارگزاری کیست.
+        self.holdings_provider = holdings_provider
+        #: کش یک‌پاسی. بدون این، هر نماد یک درخواست به کارگزاری می‌زند
+        #: در حالی که یک پاسخ همه‌ی دارایی‌ها را دارد.
+        self._holdings: dict[str, int] | None = None
+
+    def reset_holdings_cache(self) -> None:
+        """کش دارایی را خالی می‌کند تا پاس بعدی از نو بخواند."""
+        self._holdings = None
+
+    def _holding_for(self, symbol: str) -> int | None:
+        """تعداد سهمِ یک نماد — یا `None` اگر معلوم نباشد.
+
+        تفاوت `None` و `0` تصمیم‌ساز است: اولی «نمی‌دانم» و دومی «نداری».
+        پس شکستِ خواندن هرگز به صفر تبدیل نمی‌شود؛ صفر فقط وقتی برمی‌گردد
+        که واقعاً لیستِ دارایی را دیده باشیم و این نماد در آن نباشد.
+        """
+        if self.holdings_provider is None:
+            return None
+
+        if self._holdings is None:
+            try:
+                self._holdings = self.holdings_provider()
+            except Exception as exc:  # نبود دارایی نباید پاس رصد را بخواباند
+                logger.warning("دارایی سهم خوانده نشد؛ مالکیت نامعلوم ماند: %s", exc)
+                return None
+
+        return self._holdings.get(symbol, 0)
 
     # ------------------------------------------------------------------
     def run_once(self, symbols: list[str] | None = None) -> list[Signal]:
         """یک پاس کامل روی همه نمادها؛ خطای یک نماد بقیه را متوقف نمی‌کند."""
+        # دارایی بین نمادهای یک پاس مشترک است، ولی بین پاس‌ها نه — کاربر
+        # ممکن است وسط دو پاس سهم بخرد یا بفروشد.
+        self.reset_holdings_cache()
         signals: list[Signal] = []
         for symbol in symbols or self.config.symbols:
             try:
@@ -183,6 +218,7 @@ class SignalGenerator:
             risk_free_rate=self.config.risk_free_rate,
             now=datetime.now(),
             data_source=self.data_source,
+            underlying_holding=self._holding_for(symbol),
         )
 
     # ------------------------------------------------------------------

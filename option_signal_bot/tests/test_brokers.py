@@ -461,3 +461,71 @@ def test_balance_rejects_non_object_response():
 
 def test_empty_balance_has_zero_equity():
     assert AccountBalance().equity == 0.0
+
+
+# ----------------------------------------------------------------------
+# دارایی سهم (شرط Covered Call)
+# ----------------------------------------------------------------------
+PERFORMANCE_PAYLOAD = {
+    "items": [
+        {
+            "symbolIsin": "IRO1IKCO0008",
+            "symbolName": "خودرو",
+            "asset": 25_000,
+            "totalBuyAveragePrice": 2_300,
+        },
+        {
+            # سهمی که فروخته شده — `asset` صفر. باید فیلتر شود، وگرنه
+            # Covered Call روی سهمی که نداری تأیید می‌شود.
+            "symbolIsin": "IRO1SIPA0009",
+            "symbolName": "خساپا",
+            "asset": 0,
+            "totalBuyAveragePrice": 1_800,
+        },
+    ]
+}
+
+
+def test_share_positions_map_to_domain_model():
+    client = FakeClient({"/assetmodule/api/performance": PERFORMANCE_PAYLOAD})
+    positions = client.get_share_positions()
+
+    assert len(positions) == 1
+    assert positions[0].symbol_name == "خودرو"
+    assert positions[0].quantity == 25_000
+    assert positions[0].average_price == 2_300
+
+
+def test_zero_asset_rows_are_dropped():
+    """سهمِ فروخته‌شده در کارنامه می‌ماند ولی دارایی نیست."""
+    client = FakeClient({"/assetmodule/api/performance": PERFORMANCE_PAYLOAD})
+    assert all(p.quantity > 0 for p in client.get_share_positions())
+    assert "خساپا" not in {p.symbol_name for p in client.get_share_positions()}
+
+
+def test_share_positions_reject_malformed_payload():
+    with pytest.raises(BrokerError, match="performance"):
+        FakeClient({"/assetmodule/api/performance": []}).get_share_positions()
+
+    with pytest.raises(BrokerError, match="items"):
+        FakeClient(
+            {"/assetmodule/api/performance": {"items": "nope"}}
+        ).get_share_positions()
+
+
+def test_share_positions_skip_junk_rows():
+    payload = {"items": ["junk", None, {}, {"asset": 5, "symbolName": "x"}]}
+    positions = FakeClient(
+        {"/assetmodule/api/performance": payload}
+    ).get_share_positions()
+    assert len(positions) == 1 and positions[0].quantity == 5
+
+
+def test_emofid_declares_share_position_support():
+    """مصرف‌کننده با همین فلگ «نمی‌دانم» را از «نداری» تشخیص می‌دهد."""
+    assert EmofidAccountClient.supports_share_positions is True
+
+
+def test_base_contract_defaults_to_no_share_support():
+    """آداپتری که پیاده نکرده، نباید ادعای دانستن کند."""
+    assert AccountDataSource.supports_share_positions is False

@@ -3,18 +3,30 @@
 - Covered Call: بازار رنج + IV گران ⇒ پیشنهاد فروش Call روی سهم موجود در پورتفو.
 - Long Straddle: IV ارزان نسبت به نوسان تاریخی ⇒ پیشنهاد خرید همزمان Call و Put ATM.
 
-نکته مهم: سیگنال Covered Call فقط معنا دارد اگر کاربر سهم پایه را داشته باشد؛
-این شرط در متن سیگنال یادآوری می‌شود و بررسی مالکیت خارج از دامنه مایل‌استون ۱ است.
+نکته مهم: سیگنال Covered Call فقط معنا دارد اگر کاربر سهم پایه را داشته
+باشد. بدون سهم، همان معامله یک **کالِ لخت** است: سود محدود به پرمیوم،
+زیان نامحدود. این دو یک استراتژی با پارامتر مختلف نیستند.
+
+مالکیت از `StrategyContext.underlying_holding` خوانده می‌شود — یک **عدد**
+که لایه‌ی wiring از کارگزاری پر می‌کند، نه دسترسیِ استراتژی به حساب.
+سه حالت دارد و تفاوت‌شان تصمیم‌ساز است:
+
+    `None` → نامعلوم (کارگزاری خاموش) ⇒ سیگنال با هشدار، مثل قبل
+    `0` یا کمتر از یک قرارداد ⇒ سیگنال **صادر نمی‌شود**
+    کافی ⇒ سیگنال با تأیید مالکیت و تعداد قرارداد قابل پوشش
 """
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from signals.signal_model import Side, Signal
 from strategies.base_strategy import BaseStrategy, StrategyContext
 from strategies.directional_strategy import sma
 from strategies.registry import register_strategy
+
+logger = logging.getLogger(__name__)
 
 
 @register_strategy
@@ -39,6 +51,14 @@ class NeutralStrategy(BaseStrategy):
             "min_open_interest": 50,
             "enable_covered_call": True,
             "enable_straddle": True,
+            # Covered Call فقط وقتی سهم پایه را داری معنا دارد. بدون سهم،
+            # همان معامله یک کالِ لخت است: زیان نامحدود. پس اگر مالکیت
+            # معلوم باشد و کافی نباشد، سیگنال صادر نمی‌شود.
+            "require_underlying_holding": True,
+            # وقتی مالکیت **نامعلوم** است (کارگزاری خاموش)، سیگنال با
+            # هشدار صادر می‌شود — رفتار قبلی پروژه. `True` یعنی
+            # سخت‌گیرانه: نامعلوم هم رد شود.
+            "skip_covered_call_if_holding_unknown": False,
         }
 
     def generate(self, context: StrategyContext) -> list[Signal]:
@@ -69,7 +89,7 @@ class NeutralStrategy(BaseStrategy):
     def _covered_call(
         self, context: StrategyContext, iv: float, realized: float, iv_ratio: float
     ) -> list[Signal]:
-        """فروش Call با استرایک بالاتر، مشروط به رنج بودن بازار."""
+        """فروش Call با استرایک بالاتر، مشروط به رنج بودن بازار و مالکیت سهم."""
         if not self._is_range_bound(context):
             return []
 
@@ -82,13 +102,44 @@ class NeutralStrategy(BaseStrategy):
         if contract is None:
             return []
 
+        # شرط مالکیت، **قبل از** ساخت سیگنال. Covered Call بدون سهم یک کالِ
+        # لخت است: سود محدود به پرمیوم، زیان نامحدود. این دو یک استراتژی
+        # با پارامتر مختلف نیستند، دو پروفایل ریسکِ متفاوت‌اند.
+        holding = context.underlying_holding
+        needed = contract.contract_size  # سهمِ لازم برای یک قرارداد
+
+        if holding is None:
+            # نامعلوم: کارگزاری خاموش است یا دارایی سهم را نمی‌دهد.
+            if self.params["skip_covered_call_if_holding_unknown"]:
+                return []
+            holding_note = (
+                "⚠️ مالکیت سهم پایه **بررسی نشد** (اتصال کارگزاری خاموش است). "
+                f"برای یک قرارداد به {needed:,} سهم نیاز است؛ بدون سهم این معامله "
+                "کالِ لخت با زیان نامحدود است."
+            )
+            max_contracts = None
+        elif self.params["require_underlying_holding"] and holding < needed:
+            logger.info(
+                "Covered Call روی %s رد شد: %s سهم داری، برای یک قرارداد %s لازم است.",
+                context.underlying,
+                f"{holding:,}",
+                f"{needed:,}",
+            )
+            return []
+        else:
+            max_contracts = holding // needed if needed else 0
+            holding_note = (
+                f"✅ مالکیت تأیید شد: {holding:,} سهم پایه "
+                f"(پوشش {max_contracts:,} قرارداد)."
+            )
+
         premium = contract.bid or contract.mid_price or 0.0
         yield_pct = premium / context.spot * 100.0 if context.spot else 0.0
         reason = (
             f"Covered Call روی {context.underlying}: بازار در محدوده رنج و IV گران است "
             f"(IV {iv * 100:.1f}٪ در برابر نوسان تاریخی {realized * 100:.1f}٪، نسبت {iv_ratio:.2f}). "
             f"پرمیوم دریافتی ≈ {yield_pct:.2f}٪ قیمت پایه. "
-            "⚠️ فقط در صورت داشتن سهم پایه به تعداد کافی اجرا شود."
+            f"{holding_note}"
         )
         return [
             self.build_signal(
@@ -100,6 +151,10 @@ class NeutralStrategy(BaseStrategy):
                 metadata={
                     "structure": "covered_call",
                     "requires_underlying_holding": True,
+                    "underlying_holding": holding,
+                    "holding_verified": holding is not None,
+                    "shares_per_contract": needed,
+                    "max_covered_contracts": max_contracts,
                     "implied_vol": round(iv, 4),
                     "realized_vol": round(realized, 4),
                     "iv_ratio": round(iv_ratio, 3),
