@@ -60,7 +60,15 @@ def default_settings() -> dict[str, Any]:
         "strategies": {},
         "notifiers": {
             "console": {"enabled": True, "as_json": False},
-            "telegram": {"enabled": False},
+            "telegram": {
+                "enabled": False,
+                # دستورهای /signals، /status، /report، /mute.
+                # جدا از `enabled` است: کسی می‌تواند اعلان بخواهد
+                # ولی ربات دوطرفه نخواهد.
+                "commands_enabled": False,
+                "mute_state_path": "var/telegram_mute.json",
+                "command_state_path": "var/telegram_offset.json",
+            },
         },
         "storage": {
             "enabled": True,

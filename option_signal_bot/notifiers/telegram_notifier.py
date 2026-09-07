@@ -14,6 +14,7 @@ import urllib.parse
 import urllib.request
 
 from notifiers.base_notifier import BaseNotifier
+from notifiers.telegram_commands import MuteState
 from signals.signal_model import Signal
 
 logger = logging.getLogger(__name__)
@@ -39,12 +40,24 @@ class TelegramNotifier(BaseNotifier):
         chat_id: str,
         disabled: bool = False,
         timeout: int = DEFAULT_TIMEOUT,
+        mute: MuteState | None = None,
     ) -> None:
         self.bot_token = bot_token
         self.chat_id = chat_id
         self.timeout = timeout
         # بدون توکن یا chat_id معتبر، کانال خودش را خاموش می‌کند تا حلقه اصلی نشکند.
         self.disabled = disabled or not bot_token or not chat_id
+        #: وضعیت `/mute`، مشترک با `TelegramCommandBot`.
+        #:
+        #: عمداً از `disabled` جداست: `disabled` یعنی «این کانال قابل
+        #: استفاده نیست» (توکن نداریم) ولی `mute` یعنی «کاربر موقتاً
+        #: نمی‌خواهد بشنود». یکی گرفتنشان باعث می‌شد `/unmute` روی کانالی
+        #: که توکن ندارد هم ادعای موفقیت کند.
+        self.mute = mute
+
+    @property
+    def muted(self) -> bool:
+        return self.mute is not None and self.mute.muted
 
     def send(self, signal: Signal) -> bool:
         return self.send_text(self.format_signal(signal))
@@ -52,6 +65,11 @@ class TelegramNotifier(BaseNotifier):
     def send_text(self, text: str) -> bool:
         if self.disabled:
             logger.info("[telegram/خاموش] %s", text.replace("\n", " | "))
+            return False
+        if self.muted:
+            # رصد و ثبت ادامه دارد؛ فقط پیام نمی‌رود. سیگنال در دیتابیس
+            # هست، پس `/signals` بعداً نشانش می‌دهد.
+            logger.info("[telegram/mute] %s", text.replace("\n", " | "))
             return False
         return self._post("sendMessage", {"chat_id": self.chat_id, "text": text})
 

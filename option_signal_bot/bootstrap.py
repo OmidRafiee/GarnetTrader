@@ -34,9 +34,14 @@ from data.tsetmc_option_chain_client import (
     PayloadSource,
     TsetmcOptionChainClient,
 )
-from market.trading_calendar import TradingCalendar
+from market.trading_calendar import TradingCalendar, format_jalali
 from notifiers.base_notifier import BaseNotifier
 from notifiers.console_notifier import ConsoleNotifier
+from notifiers.telegram_commands import (
+    CommandContext,
+    MuteState,
+    TelegramCommandBot,
+)
 from notifiers.telegram_notifier import TelegramNotifier
 from risk.risk_calculator import RiskCalculator, RiskLimits
 from signals.signal_generator import GeneratorConfig, SignalGenerator
@@ -355,16 +360,48 @@ def _build_console(config: dict[str, Any], as_json: bool) -> BaseNotifier | None
     return ConsoleNotifier(as_json=as_json or config.get("as_json", False))
 
 
-def _build_telegram(config: dict[str, Any], _as_json: bool) -> BaseNotifier | None:
-    # متغیر محیطی بر مقدار فایل اولویت دارد تا توکن هرگز در گیت نیفتد.
+#: وضعیت `/mute` باید **یک نمونه** برای کل برنامه باشد. اگر notifier و
+#: ربات دستورها هر کدام نمونه‌ی خودشان را بسازند، `/mute` روی ارسال اثر
+#: نمی‌کند: کاربر تأیید می‌گیرد ولی پیام‌ها همچنان می‌آیند.
+_MUTE_STATES: dict[Any, MuteState] = {}
+
+
+def telegram_credentials(config: dict[str, Any]) -> tuple[str, str]:
+    """توکن و chat_id تلگرام. متغیر محیطی بر فایل اولویت دارد.
+
+    اولویت محیط برای این است که توکن هرگز در گیت نیفتد.
+    """
     token = os.getenv("TELEGRAM_BOT_TOKEN") or str(config.get("bot_token", ""))
     chat_id = os.getenv("TELEGRAM_CHAT_ID") or str(config.get("chat_id", ""))
-    if not token or token.startswith("<"):
+    if token.startswith("<"):  # مقدار نمونه‌ی settings.example
+        token = ""
+    return token.strip(), chat_id.strip()
+
+
+def build_mute_state(settings: dict[str, Any]) -> MuteState:
+    """وضعیت `/mute`، مشترک بین notifier و ربات دستورها."""
+    config = section(settings, "notifiers").get("telegram") or {}
+    path = resolve_path(config.get("mute_state_path", "var/telegram_mute.json"))
+    mute = _MUTE_STATES.get(path)
+    if mute is None:
+        mute = MuteState(path=path)
+        _MUTE_STATES[path] = mute
+    return mute
+
+
+def _build_telegram(config: dict[str, Any], _as_json: bool) -> BaseNotifier | None:
+    token, chat_id = telegram_credentials(config)
+    if not token:
         logger.warning(
             "توکن تلگرام تنظیم نشده (TELEGRAM_BOT_TOKEN)؛ این کانال ساخته نشد."
         )
         return None
-    return TelegramNotifier(bot_token=token, chat_id=chat_id)
+    path = resolve_path(config.get("mute_state_path", "var/telegram_mute.json"))
+    mute = _MUTE_STATES.get(path)
+    if mute is None:
+        mute = MuteState(path=path)
+        _MUTE_STATES[path] = mute
+    return TelegramNotifier(bot_token=token, chat_id=chat_id, mute=mute)
 
 
 #: نام کانال در تنظیمات → سازنده آن
@@ -410,6 +447,90 @@ def build_signal_log(settings: dict[str, Any], dry_run: bool = False) -> SignalL
     return SignalLog(
         db_path=resolve_path(config.get("sqlite_path", "var/signals.db")),
         jsonl_path=resolve_path(jsonl) if jsonl else None,
+    )
+
+
+def build_command_bot(
+    settings: dict[str, Any], context: AppContext | None = None
+) -> TelegramCommandBot | None:
+    """ربات دستورهای تلگرام، یا `None` اگر خاموش/بی‌توکن باشد.
+
+    تابع‌های خواندن داده به‌صورت closure پاس داده می‌شوند، نه کلاینت: این
+    لایه نباید بتواند چیزی جز خواندن انجام بدهد. `/mute` تنها دستور
+    نویسنده است و فقط جلوی *ارسال اعلان* را می‌گیرد.
+    """
+    config = section(settings, "notifiers").get("telegram") or {}
+    if not config.get("enabled") or not config.get("commands_enabled", False):
+        return None
+
+    token, chat_id = telegram_credentials(config)
+    if not token or not chat_id:
+        logger.warning(
+            "دستورهای تلگرام روشن است ولی توکن/chat_id نیست؛ ساخته نشد."
+        )
+        return None
+
+    storage = section(settings, "storage")
+    db_path = resolve_path(storage.get("sqlite_path", "var/signals.db"))
+
+    def recent_signals(limit: int) -> list[dict[str, Any]]:
+        from storage.reporting import SignalReporter
+
+        with SignalReporter(db_path) as reporter:
+            return reporter.recent(limit=limit)
+
+    def performance() -> dict[str, Any]:
+        from storage.reporting import SignalReporter
+
+        with SignalReporter(db_path) as reporter:
+            return reporter.performance_metrics()
+
+    def status() -> dict[str, Any]:
+        market_open = None
+        today_jalali = next_day = None
+        if context is not None:
+            try:
+                market_open = context.market_data.is_market_open()
+                calendar = context.trading_calendar
+                if calendar is not None:
+                    today = date.today()
+                    today_jalali = format_jalali(today)
+                    if not market_open:
+                        nxt = (
+                            today
+                            if calendar.is_trading_day(today)
+                            else calendar.next_trading_day(today)
+                        )
+                        next_day = f"{nxt.isoformat()} ({format_jalali(nxt)})"
+            except Exception as exc:  # وضعیت نباید ربات را بخواباند
+                logger.warning("وضعیت بازار برای تلگرام خوانده نشد: %s", exc)
+
+        from storage.signal_log import SignalLog
+
+        with SignalLog(db_path=db_path, jsonl_path=None) as log:
+            count = log.count()
+
+        return {
+            "market_open": market_open,
+            "signal_count": count,
+            "market_data_provider": section(settings, "market_data").get("provider"),
+            "option_chain_provider": section(settings, "option_chain").get("provider"),
+            "today_jalali": today_jalali,
+            "next_trading_day": next_day,
+        }
+
+    return TelegramCommandBot(
+        bot_token=token,
+        allowed_chat_id=chat_id,
+        context=CommandContext(
+            recent_signals=recent_signals,
+            status=status,
+            performance=performance,
+        ),
+        mute=build_mute_state(settings),
+        state_path=resolve_path(
+            config.get("command_state_path", "var/telegram_offset.json")
+        ),
     )
 
 

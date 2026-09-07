@@ -105,6 +105,12 @@ notifiers:
     #   TELEGRAM_BOT_TOKEN و TELEGRAM_CHAT_ID
     bot_token: "<YOUR_TELEGRAM_BOT_TOKEN>"
     chat_id: "<YOUR_TELEGRAM_CHAT_ID>"
+    # دستورهای دوطرفه: /signals، /status، /report، /mute
+    # جدا از `enabled` است — کسی می‌تواند اعلان بخواهد ولی ربات
+    # دوطرفه نخواهد. فقط دستورهای همین chat_id پذیرفته می‌شود.
+    commands_enabled: false
+    mute_state_path: var/telegram_mute.json
+    command_state_path: var/telegram_offset.json
 
 storage:
   enabled: true

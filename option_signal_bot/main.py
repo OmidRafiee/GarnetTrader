@@ -18,7 +18,12 @@ import time
 from pathlib import Path
 from typing import Any
 
-from bootstrap import AppContext, build_backtester, create_app
+from bootstrap import (
+    AppContext,
+    build_backtester,
+    build_command_bot,
+    create_app,
+)
 from config import force_utf8_stdio
 from config.loader import SettingsError, load_settings, section
 from notifiers.base_notifier import BaseNotifier
@@ -26,6 +31,10 @@ from signals.signal_model import Signal, SignalStatus
 from storage.signal_log import SignalLog
 
 logger = logging.getLogger("option_signal_bot")
+
+#: فاصله‌ی خواندن دستورهای تلگرام در بازه‌ی انتظار (ثانیه). کوتاه‌تر
+#: یعنی پاسخ سریع‌تر، ولی درخواست بیشتر به تلگرام.
+COMMAND_POLL_SECONDS = 5
 
 
 # ----------------------------------------------------------------------
@@ -58,14 +67,50 @@ def run_loop(app: AppContext, once: bool, interval: int | None) -> None:
     interval = interval or general.get("poll_interval_seconds", 300)
     only_when_open = general.get("run_only_when_market_open", False)
 
+    command_bot = build_command_bot(app.settings, app)
+    if command_bot is not None:
+        logger.info("دستورهای تلگرام فعال است (/help برای فهرست).")
+
     while True:
         if only_when_open and not app.market_data.is_market_open():
             logger.info("بازار بسته است؛ پاس بعدی %s ثانیه دیگر.", interval)
         else:
             run_cycle(app)
         if once:
+            # حتی در حالت یک‌بار، دستورهای معلق جواب می‌گیرند
+            _poll_commands(command_bot)
             return
+        _wait(interval, command_bot)
+
+
+def _poll_commands(command_bot: object | None) -> None:
+    """یک بار دستورهای تلگرام را بخوان. خطا حلقه را نمی‌خواباند."""
+    if command_bot is None:
+        return
+    try:
+        command_bot.poll_once()
+    except Exception:  # قطعی تلگرام نباید رصد بازار را متوقف کند
+        logger.exception("خواندن دستورهای تلگرام شکست خورد.")
+
+
+def _wait(interval: int, command_bot: object | None) -> None:
+    """انتظار بین دو پاس، با پاسخ‌دهی به دستورها در همین فاصله.
+
+    بدون این، `/mute` تا پاس بعدی (پیش‌فرض ۵ دقیقه) جواب نمی‌گرفت و
+    کاربر فکر می‌کرد ربات خراب است. پس فاصله به قطعه‌های کوچک شکسته
+    می‌شود و بین هر قطعه یک بار `getUpdates` می‌رود.
+    """
+    if command_bot is None:
         time.sleep(interval)
+        return
+
+    step = COMMAND_POLL_SECONDS
+    remaining = interval
+    while remaining > 0:
+        _poll_commands(command_bot)
+        nap = min(step, remaining)
+        time.sleep(nap)
+        remaining -= nap
 
 
 def run_backtest(settings: dict[str, Any]) -> None:
