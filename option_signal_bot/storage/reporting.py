@@ -147,6 +147,63 @@ class SignalReporter:
             "window_days": days,
         }
 
+    def resolved_returns(
+        self, days: int | None = None, strategy: str | None = None
+    ) -> list[float]:
+        """بازده سیگنال‌های **نتیجه‌گرفته**، به ترتیب زمانی.
+
+        سیگنال «در انتظار» کنار گذاشته می‌شود: معامله‌ای که هنوز باز است
+        نه برد است نه باخت، و صفر گرفتنش هم انتظار ریاضی و هم حداکثر افت
+        را رقیق و بی‌معنا می‌کند.
+
+        ترتیب زمانی لازم است، چون منحنی تجمعی و حداکثر افت به آن وابسته‌اند.
+        """
+        where, params = self._window(days)
+        clause = f"{where} AND" if where else "WHERE"
+        query = f"""
+            SELECT o.pnl_pct AS pnl
+            FROM signals s
+            JOIN signal_outcomes o ON o.signal_id = s.signal_id
+            {clause} o.pnl_pct IS NOT NULL
+              AND o.outcome IN ('{OUTCOME_WIN}', '{OUTCOME_LOSS}', '{OUTCOME_EXPIRED}')
+        """
+        args: list[Any] = list(params)
+        if strategy:
+            query += " AND s.strategy_name = ?"
+            args.append(strategy)
+        query += " ORDER BY s.created_at ASC"
+
+        rows = self._connection.execute(query, args).fetchall()
+        return [float(r["pnl"]) for r in rows]
+
+    def equity_curve(
+        self, days: int | None = None, strategy: str | None = None
+    ) -> list[float]:
+        """بازده تجمعی سیگنال‌های نتیجه‌گرفته — برای نمودار داشبورد.
+
+        همین منحنی است که `max_drawdown` از آن می‌آید؛ دیدنش نشان می‌دهد
+        مسیرِ رسیدن به میانگین چه شکلی بوده.
+        """
+        from backtest import metrics
+
+        return metrics.equity_curve(self.resolved_returns(days, strategy))
+
+    def performance_metrics(
+        self, days: int | None = None, strategy: str | None = None
+    ) -> dict[str, Any]:
+        """معیارهای حرفه‌ای روی نتیجه‌ی **واقعی** سیگنال‌ها.
+
+        همان تابعی را صدا می‌زند که بک‌تست استفاده می‌کند
+        (`backtest/metrics.py`)، تا گزارش زنده و بک‌تست هرگز دو عدد مختلف
+        برای یک معیار نگویند.
+        """
+        from backtest import metrics
+
+        data = metrics.summarize(self.resolved_returns(days, strategy))
+        data["window_days"] = days
+        data["strategy"] = strategy
+        return data
+
     def by_strategy(self, days: int | None = None) -> list[StrategyStats]:
         """آمار به تفکیک استراتژی — کدام واقعاً کار می‌کند."""
         where, params = self._window(days)

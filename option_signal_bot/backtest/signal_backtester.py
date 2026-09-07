@@ -12,6 +12,7 @@ import logging
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime
 
+from backtest import metrics
 from data.market_data_client import Candle, MarketDataClient, Quote
 from data.option_chain_client import OptionChain, OptionChainClient
 from signals.signal_model import OptionType, Side, Signal
@@ -83,6 +84,76 @@ class BacktestReport:
     def worst_return_pct(self) -> float:
         return min((o.directional_return_pct for o in self.outcomes), default=0.0)
 
+    # ------------------------------------------------------------------
+    # معیارهای حرفه‌ای — منطق در `backtest/metrics.py` است
+    #
+    # ⚠️ همه روی **بازده جهت‌دار نماد پایه** حساب می‌شوند، نه سود واقعی
+    # آپشن. اهرم لحاظ نشده، پس این اعداد کیفیت **جهت‌دهی** سیگنال را
+    # می‌سنجند، نه بازده پرتفو.
+    # ------------------------------------------------------------------
+    @property
+    def returns(self) -> list[float]:
+        """بازده جهت‌دار هر سیگنال (درصد)، به ترتیب **زمانی**.
+
+        ترتیب زمانی برای منحنی تجمعی و حداکثر افت حیاتی است؛ ترتیب
+        ورودی تضمینی ندارد.
+        """
+        ordered = sorted(self.outcomes, key=lambda o: o.signal.created_at)
+        return [o.directional_return_pct for o in ordered]
+
+    @property
+    def median_return_pct(self) -> float | None:
+        return metrics.median(self.returns)
+
+    @property
+    def stdev_return_pct(self) -> float | None:
+        return metrics.stdev(self.returns)
+
+    @property
+    def avg_win_pct(self) -> float | None:
+        return metrics.average_win(self.returns)
+
+    @property
+    def avg_loss_pct(self) -> float | None:
+        return metrics.average_loss(self.returns)
+
+    @property
+    def expectancy_pct(self) -> float | None:
+        """انتظار ریاضی هر سیگنال — مهم‌ترین عدد این گزارش.
+
+        نرخ برد بالا با زیان‌های بزرگ می‌تواند انتظار **منفی** بدهد.
+        """
+        return metrics.expectancy(self.returns)
+
+    @property
+    def profit_factor(self) -> float | None:
+        return metrics.profit_factor(self.returns)
+
+    @property
+    def sharpe(self) -> float | None:
+        """شارپِ هر سیگنال — عمداً سالانه‌سازی نشده."""
+        return metrics.sharpe(self.returns)
+
+    @property
+    def sortino(self) -> float | None:
+        return metrics.sortino(self.returns)
+
+    @property
+    def equity_curve(self) -> list[float]:
+        return metrics.equity_curve(self.returns)
+
+    @property
+    def max_drawdown_pct(self) -> float | None:
+        return metrics.max_drawdown(self.returns)
+
+    @property
+    def longest_losing_streak(self) -> int:
+        return metrics.longest_losing_streak(self.returns)
+
+    def metrics(self) -> dict[str, float | int | None]:
+        """همه‌ی معیارها در یک دیکشنری — برای API، CSV و گزارش."""
+        return metrics.summarize(self.returns)
+
     def by_strategy(self) -> dict[str, BacktestReport]:
         grouped: dict[str, BacktestReport] = {}
         for outcome in self.outcomes:
@@ -93,16 +164,37 @@ class BacktestReport:
     def summary(self) -> str:
         if not self.total:
             return "هیچ سیگنالی در بازه بک‌تست تولید نشد."
+        def num(value: float | None, digits: int = 2, suffix: str = "") -> str:
+            """`None` یعنی «نمونه کافی نبود»، نه صفر."""
+            return "نامعلوم" if value is None else f"{value:+.{digits}f}{suffix}"
+
+        def mag(value: float | None, digits: int = 2, suffix: str = "") -> str:
+            """برای مقادیری که همیشه مثبت‌اند (افت، ضریب) — علامت `+` گمراه‌کننده است."""
+            return "نامعلوم" if value is None else f"{value:.{digits}f}{suffix}"
+
         lines = [
             f"تعداد سیگنال: {self.total}",
             f"نرخ برد: {self.win_rate_pct:.1f}٪ ({self.wins}/{self.total})",
-            f"میانگین بازده جهت‌دار پایه: {self.avg_return_pct:+.2f}٪",
+            f"انتظار ریاضی هر سیگنال: {num(self.expectancy_pct, 2, '٪')}",
+            f"میانگین بازده جهت‌دار پایه: {self.avg_return_pct:+.2f}٪"
+            f" | میانه: {num(self.median_return_pct, 2, '٪')}",
+            f"میانگین برد: {num(self.avg_win_pct, 2, '٪')}"
+            f" | میانگین زیان: {num(self.avg_loss_pct, 2, '٪')}",
+            f"ضریب سود: {mag(self.profit_factor, 2)}",
+            f"شارپ (هر سیگنال): {num(self.sharpe, 2)}"
+            f" | سورتینو: {num(self.sortino, 2)}",
+            f"حداکثر افت تجمعی: {mag(self.max_drawdown_pct, 2, '٪')}"
+            f" | بلندترین زنجیره باخت: {self.longest_losing_streak}",
             f"بهترین: {self.best_return_pct:+.2f}٪ | بدترین: {self.worst_return_pct:+.2f}٪",
+            "",
+            "⚠️ این اعداد روی بازده جهت‌دار **نماد پایه** حساب شده‌اند، نه سود",
+            "   واقعی آپشن؛ اهرم لحاظ نشده و شارپ سالانه‌سازی نشده است.",
         ]
         for name, report in self.by_strategy().items():
             lines.append(
                 f"  └ {name}: {report.total} سیگنال، نرخ برد {report.win_rate_pct:.1f}٪، "
-                f"میانگین {report.avg_return_pct:+.2f}٪"
+                f"انتظار {num(report.expectancy_pct, 2, '٪')}، "
+                f"افت {mag(report.max_drawdown_pct, 1, '٪')}"
             )
         return "\n".join(lines)
 

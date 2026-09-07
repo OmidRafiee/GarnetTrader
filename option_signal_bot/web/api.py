@@ -489,6 +489,10 @@ def get_report(days: int | None = None) -> dict[str, Any]:
             "by_underlying": reporter.by_underlying(days),
             "daily": reporter.daily_counts(days or 30),
             "recent": reporter.recent(limit=50, days=days),
+            # معیارهای حرفه‌ای روی نتیجه‌ی **واقعی**؛ همان تابعی که
+            # بک‌تست هم استفاده می‌کند، تا دو عدد مختلف نگویند.
+            "metrics": reporter.performance_metrics(days),
+            "equity_curve": reporter.equity_curve(days),
         }
 
 

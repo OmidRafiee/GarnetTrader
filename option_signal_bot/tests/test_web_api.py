@@ -322,3 +322,27 @@ def test_unknown_structure_kind_is_rejected(client):
 def test_rank_keys_are_exposed(client):
     body = client.get("/api/structures/rank-keys").json()
     assert any(k["key"] == "roi" for k in body["keys"])
+
+
+def test_report_exposes_performance_metrics(client):
+    """داشبورد باید معیارها را ببیند، وگرنه فقط نرخ برد را نشان می‌دهد."""
+    body = client.get("/api/report").json()
+    assert "metrics" in body
+    assert "equity_curve" in body
+    for key in (
+        "expectancy_pct",
+        "sharpe_per_signal",
+        "sortino_per_signal",
+        "max_drawdown_pct",
+        "profit_factor",
+        "longest_losing_streak",
+    ):
+        assert key in body["metrics"], key
+
+
+def test_report_metrics_use_none_for_unknown(client):
+    """پایگاه‌داده‌ی تست خالی است؛ معیارها باید `null` باشند، نه صفر."""
+    metrics = client.get("/api/report").json()["metrics"]
+    if metrics["total"] == 0:
+        assert metrics["expectancy_pct"] is None
+        assert metrics["sharpe_per_signal"] is None

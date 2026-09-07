@@ -193,3 +193,140 @@ def test_pending_signals_excludes_evaluated(reporter):
     assert len(reporter.pending_signals()) == 3
     reporter.record_outcome("a", 150.0, 50.0, OUTCOME_WIN)
     assert len(reporter.pending_signals()) == 2
+
+
+# ======================================================================
+# معیارهای حرفه‌ای روی نتیجه‌ی واقعی
+#
+# همین منطق در بک‌تست هم استفاده می‌شود (`backtest/metrics.py`)، تا گزارش
+# زنده و بک‌تست هرگز دو عدد مختلف برای یک معیار نگویند.
+# ======================================================================
+def _series(tmp_path, returns, strategy="s1"):
+    """یک دیتابیس با نتایجِ داده‌شده، به ترتیب زمانی."""
+    db = tmp_path / "metrics.db"
+    rows = []
+    for i, _ in enumerate(returns):
+        row = _signal(f"m{i}", strategy=strategy)
+        # ترتیب زمانی صریح: منحنی تجمعی و حداکثر افت به آن وابسته‌اند
+        row["created_at"] = f"2026-09-{i + 1:02d}T10:00:00"
+        rows.append(row)
+    _seed(db, rows)
+
+    reporter = SignalReporter(db)
+    for i, value in enumerate(returns):
+        reporter.record_outcome(
+            f"m{i}",
+            price_at_check=100.0,
+            pnl_pct=float(value),
+            outcome="win" if value > 0 else "loss",
+        )
+    return reporter
+
+
+SERIES = [10.0, -5.0, 10.0, -5.0, 10.0]
+
+
+def test_resolved_returns_are_in_time_order(tmp_path):
+    """ترتیب زمانی حیاتی است؛ بی‌ترتیبی، حداکثر افت را غلط می‌کند."""
+    with _series(tmp_path, SERIES) as reporter:
+        assert reporter.resolved_returns() == pytest.approx(SERIES)
+
+
+def test_pending_signals_are_excluded(tmp_path):
+    """معامله‌ی باز نه برد است نه باخت؛ صفر گرفتنش انتظار را رقیق می‌کند."""
+    db = tmp_path / "pending.db"
+    _seed(db, [_signal("p1"), _signal("p2")])
+    with SignalReporter(db) as reporter:
+        reporter.record_outcome("p1", price_at_check=100.0, pnl_pct=12.0, outcome="win")
+        # p2 عمداً ارزیابی نشده
+        assert reporter.resolved_returns() == pytest.approx([12.0])
+        assert reporter.performance_metrics()["total"] == 1
+
+
+def test_metrics_match_the_shared_implementation(tmp_path):
+    """گزارش زنده و بک‌تست باید یک عدد بدهند، نه دو عدد نزدیک."""
+    from backtest import metrics as shared
+
+    with _series(tmp_path, SERIES) as reporter:
+        assert reporter.performance_metrics()["sharpe_per_signal"] == pytest.approx(
+            shared.sharpe(SERIES)
+        )
+        assert reporter.performance_metrics()["expectancy_pct"] == pytest.approx(
+            shared.expectancy(SERIES)
+        )
+
+
+def test_live_metrics_have_the_expected_values(tmp_path):
+    """اعداد دستی، نه فراخوانی همان کد."""
+    with _series(tmp_path, SERIES) as reporter:
+        m = reporter.performance_metrics()
+        assert m["total"] == 5
+        assert m["wins"] == 3
+        assert m["losses"] == 2
+        assert m["win_rate_pct"] == pytest.approx(60.0)
+        assert m["expectancy_pct"] == pytest.approx(4.0)
+        assert m["profit_factor"] == pytest.approx(3.0)
+        assert m["max_drawdown_pct"] == pytest.approx(5.0)
+        assert m["longest_losing_streak"] == 1
+
+
+def test_equity_curve_accumulates(tmp_path):
+    with _series(tmp_path, SERIES) as reporter:
+        assert reporter.equity_curve() == pytest.approx([10.0, 5.0, 15.0, 10.0, 20.0])
+
+
+def test_drawdown_is_visible_where_the_average_hides_it(tmp_path):
+    """میانگین مثبت است ولی وسط راه افت بزرگی رخ داده."""
+    with _series(tmp_path, [20.0, -30.0, 25.0]) as reporter:
+        m = reporter.performance_metrics()
+        assert m["avg_return_pct"] > 0
+        assert m["max_drawdown_pct"] == pytest.approx(30.0)
+
+
+def test_metrics_report_none_not_zero_when_empty(tmp_path):
+    """قرارداد `None` در برابر صفر، در گزارش زنده هم برقرار است."""
+    db = tmp_path / "empty.db"
+    _seed(db, [_signal("e1")])
+    with SignalReporter(db) as reporter:
+        m = reporter.performance_metrics()
+        assert m["total"] == 0
+        for key in ("expectancy_pct", "sharpe_per_signal", "max_drawdown_pct"):
+            assert m[key] is None, key
+
+
+def test_metrics_can_be_filtered_by_strategy(tmp_path):
+    """یک استراتژی سودده می‌تواند ضعف دیگری را در عدد کل پنهان کند."""
+    db = tmp_path / "split.db"
+    rows = []
+    for i, strategy in enumerate(["good", "good", "bad", "bad"]):
+        row = _signal(f"x{i}", strategy=strategy)
+        row["created_at"] = f"2026-09-{i + 1:02d}T10:00:00"
+        rows.append(row)
+    _seed(db, rows)
+
+    with SignalReporter(db) as reporter:
+        for i, value in enumerate([10.0, 10.0, -10.0, -10.0]):
+            reporter.record_outcome(
+                f"x{i}",
+                price_at_check=100.0,
+                pnl_pct=value,
+                outcome="win" if value > 0 else "loss",
+            )
+
+        assert reporter.performance_metrics(strategy="good")[
+            "expectancy_pct"
+        ] == pytest.approx(10.0)
+        assert reporter.performance_metrics(strategy="bad")[
+            "expectancy_pct"
+        ] == pytest.approx(-10.0)
+        # عدد کل، هر دو را پنهان می‌کند
+        assert reporter.performance_metrics()["expectancy_pct"] == pytest.approx(0.0)
+
+
+def test_window_filter_applies_to_metrics(tmp_path):
+    """بازه‌ی زمانی باید روی معیارها هم اعمال شود، نه فقط شمارش."""
+    with _series(tmp_path, SERIES) as reporter:
+        # ردیف‌ها تاریخ ۲۰۲۶-۰۹ دارند و نسبت به «حالا» قدیمی‌اند
+        recent = reporter.performance_metrics(days=1)
+        assert recent["total"] <= 5
+        assert recent["window_days"] == 1

@@ -620,6 +620,47 @@ const pct = (v) => (v === null || v === undefined ? "نامعلوم" : fmt(v * 1
 const pnl = (v) =>
   v === null || v === undefined ? "—" : (v >= 0 ? "+" : "") + fmt(v, 1) + "٪";
 
+// معیارهای حرفه‌ای. `null` اینجا یعنی «نمونه کافی نبود» — نه صفر.
+function metricsCard(m) {
+  const card = el("div", "card");
+  card.append(el("h3", "", "معیارهای عملکرد"));
+
+  const num = (v, digits = 2, suffix = "") =>
+    v === null || v === undefined ? "نامعلوم" : fmt(v, digits) + suffix;
+
+  const rows = [
+    ["انتظار ریاضی هر سیگنال", num(m.expectancy_pct, 2, "٪"),
+     "مهم‌ترین عدد: نرخ برد بالا با زیان‌های بزرگ می‌تواند انتظار منفی بدهد."],
+    ["میانه بازده", num(m.median_return_pct, 2, "٪"),
+     "برخلاف میانگین، یک سیگنال پرت آن را جابه‌جا نمی‌کند."],
+    ["میانگین برد / زیان",
+     num(m.avg_win_pct, 2, "٪") + " / " + num(m.avg_loss_pct, 2, "٪"), ""],
+    ["ضریب سود", num(m.profit_factor, 2),
+     "مجموع بردها ÷ مجموع زیان‌ها. بیشتر از ۱ یعنی سودده."],
+    ["شارپ (هر سیگنال)", num(m.sharpe_per_signal, 2),
+     "سالانه‌سازی نشده؛ با شارپ سالانه‌ی جاهای دیگر مقایسه نکنید."],
+    ["سورتینو (هر سیگنال)", num(m.sortino_per_signal, 2),
+     "فقط نوسان سمت زیان را جریمه می‌کند."],
+    ["حداکثر افت تجمعی", num(m.max_drawdown_pct, 2, "٪"),
+     "میانگین مثبت، مسیر رسیدن به آن را پنهان می‌کند."],
+    ["بلندترین زنجیره باخت", fmt(m.longest_losing_streak),
+     "چند باخت پشت‌سرهم باید تحمل می‌کردید."],
+    ["انحراف معیار", num(m.stdev_return_pct, 2, "٪"), ""],
+  ];
+
+  const table = buildTable(["معیار", "مقدار"], rows.map((r) => [r[0], r[1]]));
+  // توضیح هر معیار روی همان سطر، تا معنایش گم نشود
+  table.querySelectorAll("tbody tr").forEach((tr, i) => {
+    if (rows[i] && rows[i][2]) tr.title = rows[i][2];
+  });
+  card.append(table);
+
+  card.append(el("div", "note",
+    "این اعداد روی سود/زیان واقعیِ سیگنال‌های ارزیابی‌شده حساب شده‌اند. " +
+    "«نامعلوم» یعنی نمونه کافی نبود، نه صفر."));
+  return card;
+}
+
 async function loadReport() {
   const box = $("#report");
   box.innerHTML = '<p class="empty">در حال بارگذاری…</p>';
@@ -651,6 +692,9 @@ async function loadReport() {
         "هیچ سیگنالی هنوز ارزیابی نشده. دکمه «ارزیابی» را بزنید تا قیمت " +
         "فعلی از بازار خوانده و نتیجه ثبت شود."));
     }
+
+    // --- معیارهای حرفه‌ای ---
+    if (d.metrics && d.metrics.total > 0) box.append(metricsCard(d.metrics));
 
     // --- به تفکیک استراتژی ---
     if (d.by_strategy.length) {
