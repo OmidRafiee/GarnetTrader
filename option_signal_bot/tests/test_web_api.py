@@ -195,7 +195,7 @@ def test_account_reports_broker_failure_without_crashing(client, monkeypatch):
     import yaml
 
     path = client.settings_path
-    data = yaml.safe_load(open(path, encoding="utf-8"))
+    data = _load(path)
     data["broker"] = {"enabled": True, "session_file": "var/does-not-exist.json"}
     path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
 
@@ -257,7 +257,7 @@ def test_enrichment_allowed_once_broker_is_on(client):
     import yaml
 
     path = client.settings_path
-    data = yaml.safe_load(open(path, encoding="utf-8"))
+    data = _load(path)
     data["broker"] = {"enabled": True, "token": "x"}
     path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
 

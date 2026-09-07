@@ -25,6 +25,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
+from itertools import pairwise
 from typing import Any
 
 from data.option_chain_client import OptionContract
@@ -298,9 +299,7 @@ class StrategyPayoff:
             span = max(strikes) - min(strikes) or max(strikes) * 0.5
             probes = [0.0, *strikes, max(strikes) + span]
             # نقاط میانی، چون اکسترمم ممکن است بین دو استرایک باشد
-            probes += [
-                (a + b) / 2 for a, b in zip(strikes, strikes[1:], strict=False)
-            ]
+            probes += [(a + b) / 2 for a, b in pairwise(strikes)]
 
         values = [self.payoff(p) for p in probes]
         return max(values) if maximize else min(values)
@@ -314,7 +313,7 @@ class StrategyPayoff:
 
         points = self.payoff_curve(center * 0.3, center * 1.7, points=201)
         found: list[float] = []
-        for (p1, v1), (p2, v2) in zip(points, points[1:], strict=False):
+        for (p1, v1), (p2, v2) in pairwise(points):
             if v1 == 0:
                 found.append(p1)
             elif v1 * v2 < 0:

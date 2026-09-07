@@ -19,10 +19,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from config import force_utf8_stdio  # noqa: E402
-from data.tsetmc_http import fetch_json  # noqa: E402
-from data.tsetmc_market_data_client import DAILY_HISTORY_URL  # noqa: E402
-from data.tsetmc_option_chain_client import (  # noqa: E402
+from config import force_utf8_stdio
+from data.tsetmc_http import fetch_json
+from data.tsetmc_market_data_client import DAILY_HISTORY_URL
+from data.tsetmc_option_chain_client import (
     HttpPayloadSource,
     TsetmcOptionChainClient,
 )
@@ -68,7 +68,7 @@ def main(argv: list[str] | None = None) -> int:
     for symbol in args.symbols:
         try:
             ins_code = market_data.resolve_ins_code(symbol)
-        except Exception as exc:  # noqa: BLE001 - نماد ممکن است آپشن نداشته باشد
+        except Exception as exc:
             print(f"  {symbol}: رد شد ({exc})")
             continue
 

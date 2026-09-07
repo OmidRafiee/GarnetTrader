@@ -121,10 +121,7 @@ class BaseStrategy(ABC):
         """
         premium = contract.mid_price or 0.0
         # خریدار سمت ask را می‌پردازد و فروشنده سمت bid را می‌گیرد.
-        if side is Side.BUY:
-            price = contract.ask or premium
-        else:
-            price = contract.bid or premium
+        price = (contract.ask or premium) if side is Side.BUY else (contract.bid or premium)
 
         return Signal(
             symbol=contract.symbol,

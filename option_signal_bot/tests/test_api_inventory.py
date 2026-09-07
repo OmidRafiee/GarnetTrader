@@ -25,7 +25,7 @@ from discovery.api_inventory import (
 )
 
 # مقادیر «حساس» جعلی که نباید در هیچ خروجی ظاهر شوند
-FAKE_TOKEN = "eyJhbGciOiJIUzI1NiwidHlwIjoiSldUIn0.SUPERSECRET.signature"  # noqa: S105
+FAKE_TOKEN = "eyJhbGciOiJIUzI1NiwidHlwIjoiSldUIn0.SUPERSECRET.signature"
 FAKE_NATIONAL_ID = "0071234567"
 FAKE_BALANCE = 987654321
 FAKE_ACCOUNT = "12345678"
@@ -283,12 +283,20 @@ def _fake_har() -> dict:
                 },
                 {
                     "_resourceType": "script",
-                    "request": {"method": "GET", "url": "https://cdn.emofid.test/main.js", "headers": []},
+                    "request": {
+                        "method": "GET",
+                        "url": "https://cdn.emofid.test/main.js",
+                        "headers": [],
+                    },
                     "response": {"status": 200, "content": {"mimeType": "application/javascript"}},
                 },
                 {
                     "_resourceType": "websocket",
-                    "request": {"method": "GET", "url": "wss://push.emofid.test/hub", "headers": []},
+                    "request": {
+                        "method": "GET",
+                        "url": "wss://push.emofid.test/hub",
+                        "headers": [],
+                    },
                     "response": {"status": 101, "content": {}},
                     "_webSocketMessages": [
                         {"type": "send", "data": '{"protocol":"json","version":1}\x1e'},

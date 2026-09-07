@@ -31,13 +31,13 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-from data.tsetmc_http import DEFAULT_USER_AGENT, fetch_json
 from data.option_chain_client import (
     DEFAULT_CONTRACT_SIZE,
     OptionChain,
     OptionChainClient,
     OptionContract,
 )
+from data.tsetmc_http import DEFAULT_USER_AGENT, fetch_json
 
 logger = logging.getLogger(__name__)
 

@@ -19,8 +19,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from config import force_utf8_stdio  # noqa: E402
-from data.tsetmc_option_chain_client import (  # noqa: E402
+from config import force_utf8_stdio
+from data.tsetmc_option_chain_client import (
     PAYLOAD_KEY,
     HttpPayloadSource,
 )

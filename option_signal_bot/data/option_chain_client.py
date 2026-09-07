@@ -9,10 +9,9 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 
-from data.market_data_client import MarketDataClient
-from pricing.black_scholes import bs_price, years_to_expiry
+from pricing.black_scholes import years_to_expiry
 
 # اندازه استاندارد قرارداد آپشن در بورس تهران (تعداد سهم پایه در هر قرارداد)
 DEFAULT_CONTRACT_SIZE = 1_000

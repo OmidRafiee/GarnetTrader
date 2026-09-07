@@ -9,7 +9,6 @@
 
 from __future__ import annotations
 
-import itertools
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime

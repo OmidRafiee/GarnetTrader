@@ -14,9 +14,10 @@ from __future__ import annotations
 import dataclasses
 import logging
 import os
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Any, Callable
+from typing import Any
 
 from backtest.signal_backtester import SignalBacktester
 from config.loader import build_dataclass, resolve_path, section
@@ -186,7 +187,7 @@ def build_account_source(settings: dict[str, Any]):
             resolve_path(broker.get("session_file", "var/emofid/session.json")),
             **common,
         )
-    except Exception as exc:  # noqa: BLE001 - نبود حساب نباید ربات را بخواباند
+    except Exception as exc:  # نبود حساب نباید ربات را بخواباند
         logger.warning(
             "اتصال به کارگزاری برقرار نشد؛ ربات بدون داده‌ی حساب ادامه می‌دهد: %s", exc
         )

@@ -86,7 +86,8 @@ class BacktestReport:
     def by_strategy(self) -> dict[str, BacktestReport]:
         grouped: dict[str, BacktestReport] = {}
         for outcome in self.outcomes:
-            grouped.setdefault(outcome.signal.strategy_name, BacktestReport()).outcomes.append(outcome)
+            name = outcome.signal.strategy_name
+            grouped.setdefault(name, BacktestReport()).outcomes.append(outcome)
         return grouped
 
     def summary(self) -> str:

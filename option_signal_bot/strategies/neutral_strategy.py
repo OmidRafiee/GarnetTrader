@@ -137,7 +137,8 @@ class NeutralStrategy(BaseStrategy):
         yield_pct = premium / context.spot * 100.0 if context.spot else 0.0
         reason = (
             f"Covered Call روی {context.underlying}: بازار در محدوده رنج و IV گران است "
-            f"(IV {iv * 100:.1f}٪ در برابر نوسان تاریخی {realized * 100:.1f}٪، نسبت {iv_ratio:.2f}). "
+            f"(IV {iv * 100:.1f}٪ در برابر نوسان تاریخی "
+            f"{realized * 100:.1f}٪، نسبت {iv_ratio:.2f}). "
             f"پرمیوم دریافتی ≈ {yield_pct:.2f}٪ قیمت پایه. "
             f"{holding_note}"
         )
@@ -179,7 +180,8 @@ class NeutralStrategy(BaseStrategy):
         breakeven_pct = total_premium / context.spot * 100.0 if context.spot else 0.0
         reason = (
             f"Long Straddle روی {context.underlying}: IV ارزان است "
-            f"(IV {iv * 100:.1f}٪ در برابر نوسان تاریخی {realized * 100:.1f}٪، نسبت {iv_ratio:.2f}). "
+            f"(IV {iv * 100:.1f}٪ در برابر نوسان تاریخی "
+            f"{realized * 100:.1f}٪، نسبت {iv_ratio:.2f}). "
             f"مجموع پرمیوم {total_premium:,.0f} ⇒ برای سوددهی نیاز به حرکت بیش از "
             f"{breakeven_pct:.2f}٪ در قیمت پایه. هر دو پا باید همزمان ثبت شوند."
         )
@@ -193,8 +195,12 @@ class NeutralStrategy(BaseStrategy):
         }
         confidence = round(min((1.0 - iv_ratio), 1.0), 2)
         return [
-            self.build_signal(context, atm_call, Side.BUY, reason, confidence, {**meta, "leg": "call"}),
-            self.build_signal(context, atm_put, Side.BUY, reason, confidence, {**meta, "leg": "put"}),
+            self.build_signal(
+                context, atm_call, Side.BUY, reason, confidence, {**meta, "leg": "call"}
+            ),
+            self.build_signal(
+                context, atm_put, Side.BUY, reason, confidence, {**meta, "leg": "put"}
+            ),
         ]
 
     def _is_range_bound(self, context: StrategyContext) -> bool:

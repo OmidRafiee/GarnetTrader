@@ -78,7 +78,8 @@ class DirectionalStrategy(BaseStrategy):
         reason = (
             f"روند {'صعودی' if direction == 'bullish' else 'نزولی'} روی {context.underlying}: "
             f"MA{params['fast_window']} نسبت به MA{params['slow_window']} "
-            f"{separation_pct:+.2f}٪ و مومنتوم {params['momentum_window']} روزه {momentum_pct:+.2f}٪. "
+            f"{separation_pct:+.2f}٪ و مومنتوم {params['momentum_window']} روزه "
+            f"{momentum_pct:+.2f}٪. "
             f"قیمت پایه {context.spot:,.0f}."
         )
         if iv:

@@ -95,7 +95,7 @@ class SignalGenerator:
         for symbol in symbols or self.config.symbols:
             try:
                 signals.extend(self.generate_for_symbol(symbol))
-            except Exception:  # noqa: BLE001 - یک نماد خراب، حلقه اصلی را نکشد
+            except Exception:  # یک نماد خراب، حلقه اصلی را نکشد
                 logger.exception("تولید سیگنال برای نماد %s شکست خورد.", symbol)
         return signals
 
@@ -107,7 +107,7 @@ class SignalGenerator:
         for strategy in self.strategies:
             try:
                 raw_signals = strategy.generate(context)
-            except Exception:  # noqa: BLE001 - یک استراتژی خراب، بقیه را نکشد
+            except Exception:
                 logger.exception("استراتژی %s روی %s خطا داد.", strategy.name, symbol)
                 continue
 

@@ -179,7 +179,7 @@ async def run_scan() -> dict[str, Any]:
 
         try:
             signals = await asyncio.to_thread(_work)
-        except Exception as exc:  # noqa: BLE001 - پیام خطا به UI برگردانده می‌شود
+        except Exception as exc:  # پیام خطا به UI برگردانده می‌شود
             logger.exception("پاس رصد ناموفق بود.")
             raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -277,7 +277,7 @@ def get_symbols() -> dict[str, Any]:
                 available = sorted(getter())
         finally:
             context.close()
-    except Exception as exc:  # noqa: BLE001 - شبکه ممکن است قطع باشد
+    except Exception as exc:
         error = str(exc)
         logger.warning("دریافت نمادهای بازار ناموفق بود: %s", exc)
 
@@ -419,7 +419,7 @@ async def scan_structures(
         return await asyncio.to_thread(_work)
     except HTTPException:
         raise
-    except Exception as exc:  # noqa: BLE001 - پیام به UI می‌رود
+    except Exception as exc:
         logger.exception("اسکن ساختارها ناموفق بود.")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -504,7 +504,7 @@ async def evaluate_pending() -> dict[str, Any]:
                             (c for c in chain.contracts if c.symbol == symbol), None
                         )
                         price = match.last_price or match.bid if match else None
-                    except Exception:  # noqa: BLE001 - نماد ممکن است دیگر نباشد
+                    except Exception:
                         price = None
 
                     if not price:
@@ -522,7 +522,7 @@ async def evaluate_pending() -> dict[str, Any]:
 
     try:
         return await asyncio.to_thread(_work)
-    except Exception as exc:  # noqa: BLE001 - پیام به UI می‌رود
+    except Exception as exc:
         logger.exception("ارزیابی سیگنال‌ها ناموفق بود.")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -706,7 +706,7 @@ def get_account() -> dict[str, Any]:
         except Exception as exc:  # موجودی نباید پوزیشن‌ها را ببرد
             logger.warning("خواندن موجودی حساب ناموفق بود: %s", exc)
             balance = None
-    except Exception as exc:  # noqa: BLE001 - پیام به UI می‌رود، داشبورد نمی‌خوابد
+    except Exception as exc:
         logger.warning("خواندن حساب کارگزاری ناموفق بود: %s", exc)
         return {"enabled": True, "reason": str(exc), "positions": []}
 

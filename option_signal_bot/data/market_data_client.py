@@ -6,12 +6,10 @@
 
 from __future__ import annotations
 
-import math
-import random
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:  # فقط برای type hint؛ در زمان اجرا import نمی‌شود
@@ -58,7 +56,7 @@ class MarketDataClient(ABC):
 
     #: تقویم معاملاتی. اگر `bootstrap` یکی بسازد و اینجا بنشاند، تعطیلات
     #: رسمی هم لحاظ می‌شوند؛ وگرنه به رفتار قدیمی (فقط آخرهفته) برمی‌گردد.
-    trading_calendar: "TradingCalendar | None" = None
+    trading_calendar: TradingCalendar | None = None
 
     @abstractmethod
     def get_quote(self, symbol: str) -> Quote:
@@ -123,7 +121,7 @@ class PytseMarketDataClient(MarketDataClient):
                 timestamp=datetime.now(),
                 volume=float(getattr(ticker, "value", 0.0) or 0.0),
             )
-        except Exception as exc:  # noqa: BLE001 - هر خطای شبکه/کتابخانه
+        except Exception as exc:
             self._handle_failure(symbol, exc)  # همیشه raise می‌کند
 
     def get_history(self, symbol: str, days: int = 90) -> list[Candle]:
@@ -140,5 +138,5 @@ class PytseMarketDataClient(MarketDataClient):
                 )
                 for row in frame.itertuples()
             ]
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             self._handle_failure(symbol, exc)  # همیشه raise می‌کند
