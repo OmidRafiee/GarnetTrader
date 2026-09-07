@@ -361,6 +361,7 @@ def build_backtester(
         warmup_days=config.get("warmup_days", 30),
         step_days=config.get("step_days", 1),
         risk_free_rate=section(settings, "market_data").get("risk_free_rate", 0.25),
+        adjust_corporate_actions=config.get("adjust_corporate_actions", True),
     )
 
 

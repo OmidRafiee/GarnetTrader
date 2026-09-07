@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime
 
@@ -15,6 +16,8 @@ from data.market_data_client import Candle, MarketDataClient, Quote
 from data.option_chain_client import OptionChain, OptionChainClient
 from signals.signal_model import OptionType, Side, Signal
 from strategies.base_strategy import BaseStrategy, StrategyContext
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -121,6 +124,7 @@ class SignalBacktester:
         warmup_days: int = 30,
         step_days: int = 1,
         risk_free_rate: float = 0.25,
+        adjust_corporate_actions: bool = True,
     ) -> None:
         self.market_data = market_data
         self.option_chain = option_chain
@@ -129,13 +133,42 @@ class SignalBacktester:
         self.warmup_days = warmup_days
         self.step_days = step_days
         self.risk_free_rate = risk_free_rate
+        self.adjust_corporate_actions = adjust_corporate_actions
 
     def run(self, symbols: list[str], days: int = 180) -> BacktestReport:
         report = BacktestReport()
         for symbol in symbols:
-            history = self.market_data.get_history(symbol, days)
+            history = self._adjust(symbol, self.market_data.get_history(symbol, days))
             report.outcomes.extend(self._run_symbol(symbol, history))
         return report
+
+    def _adjust(self, symbol: str, history: list[Candle]) -> list[Candle]:
+        """قیمت تاریخی را برای افزایش سرمایه تعدیل می‌کند.
+
+        بدون این، روز افزایش سرمایه یک ریزش **ساختگی** است — روی خودرو در
+        ۲۰۲۵-۰۴-۲۲ ظاهراً ۸۴٪ افت دیده می‌شود که هرگز رخ نداده. هر استراتژی
+        تکنیکالی آن را سیگنال نزولی قوی می‌فهمد، و نتیجه‌ی کل بک‌تست بی‌معنا
+        می‌شود.
+
+        شکست اینجا کشنده نیست: تاریخچه‌ی تعدیل‌نشده همان چیزی است که قبلاً
+        داشتیم، نه چیزی بدتر.
+        """
+        if not self.adjust_corporate_actions or not history:
+            return history
+
+        resolve = getattr(self.market_data, "resolve_ins_code", None)
+        if resolve is None:
+            return history
+
+        try:
+            from market.corporate_actions import try_fetch_corporate_actions
+
+            log = try_fetch_corporate_actions(resolve(symbol), symbol)
+        except Exception as exc:  # نبود کد نماد نباید بک‌تست را بخواباند
+            logger.warning("تعدیل رویداد شرکتی %s انجام نشد: %s", symbol, exc)
+            return history
+
+        return log.adjust_history(history)
 
     # ------------------------------------------------------------------
     def _run_symbol(self, symbol: str, history: list[Candle]) -> list[SignalOutcome]:
