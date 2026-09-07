@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import uuid
 from dataclasses import asdict, dataclass, field, replace
@@ -15,6 +16,11 @@ from typing import Any
 
 # مدت اعتبار پیش‌فرض سیگنال؛ پرمیوم آپشن سریع تغییر می‌کند.
 DEFAULT_VALIDITY_MINUTES = 30
+
+#: اندازه استاندارد قرارداد آپشن در بورس تهران (تعداد سهم پایه).
+#: در `data/option_chain_client.py` هم همین مقدار هست؛ اینجا تکرار
+#: شده تا `signals/` به `data/` وابسته نشود (مدل باید مستقل بماند).
+DEFAULT_CONTRACT_SIZE = 1_000
 
 
 class OptionType(str, Enum):
@@ -77,6 +83,17 @@ class Signal:
     take_profit: float | None = None
     confidence: float | None = None
     status: SignalStatus = SignalStatus.NEW
+
+    #: تعداد سهم پایه در هر قرارداد.
+    #:
+    #: فیلد **درجه‌یک** است و نه یک کلید در `metadata`: اشتباه در آن،
+    #: ارزش موقعیت را ۱۰۰۰ برابر غلط می‌کند و `metadata` جای چنین
+    #: مقداری نیست — آن‌جا داده‌ی تشخیصی می‌نشیند که نبودش بی‌خطر است.
+    #:
+    #: `None` یعنی «استراتژی نگفت»؛ آن‌وقت پیش‌فرض بورس تهران استفاده
+    #: می‌شود. تفاوتش با صفر مهم است: صفر یعنی ارزش موقعیت صفر.
+    contract_size: int | None = None
+
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -88,6 +105,13 @@ class Signal:
             self.valid_until = self.created_at + timedelta(
                 minutes=DEFAULT_VALIDITY_MINUTES
             )
+        # سازگاری با سیگنال‌های قبلی که اندازه را در metadata گذاشته‌اند
+        # (و با ذخیره‌های موجود در دیتابیس).
+        if self.contract_size is None and "contract_size" in self.metadata:
+            # مقدار ناخوانا در رکورد قدیمی نباید بارگذاری را بشکند؛
+            # `None` می‌ماند و پیش‌فرض بورس تهران استفاده می‌شود.
+            with contextlib.suppress(TypeError, ValueError):
+                self.contract_size = int(self.metadata["contract_size"])
 
     # ------------------------------------------------------------------
     @property
@@ -95,10 +119,16 @@ class Signal:
         return max((self.expiry - self.created_at.date()).days, 0)
 
     @property
+    def units_per_contract(self) -> int:
+        """اندازه‌ی قرارداد، با پیش‌فرض بورس تهران اگر معلوم نباشد."""
+        if self.contract_size and self.contract_size > 0:
+            return int(self.contract_size)
+        return DEFAULT_CONTRACT_SIZE
+
+    @property
     def notional(self) -> float:
         """ارزش کل پیشنهاد = پرمیوم × تعداد قرارداد × اندازه قرارداد."""
-        contract_size = int(self.metadata.get("contract_size", 1_000))
-        return self.suggested_price * self.suggested_qty * contract_size
+        return self.suggested_price * self.suggested_qty * self.units_per_contract
 
     def is_expired(self, now: datetime | None = None) -> bool:
         return (now or datetime.now()) > (self.valid_until or datetime.max)

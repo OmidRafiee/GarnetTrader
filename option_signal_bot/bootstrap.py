@@ -45,6 +45,7 @@ from notifiers.telegram_commands import (
     TelegramCommandBot,
 )
 from notifiers.telegram_notifier import TelegramNotifier
+from risk.fees import FeeSchedule
 from risk.risk_calculator import RiskCalculator, RiskLimits
 from signals.signal_generator import GeneratorConfig, SignalGenerator
 from storage.signal_log import SignalLog
@@ -260,11 +261,14 @@ def build_risk_calculator(
     """
     config = section(settings, "risk")
     limits = build_dataclass(
-        RiskLimits, config, "risk", ignore={"use_broker_equity"}
+        RiskLimits, config, "risk", ignore={"use_broker_equity", "fees"}
     )
+    # نرخ کارمزد **حدس زده نمی‌شود**: تا کاربر ندهد صفر است و همه‌ی
+    # اعداد مثل قبل می‌مانند. نرخ حدسی، دقتِ کاذب می‌سازد.
+    fees = build_dataclass(FeeSchedule, config.get("fees") or {}, "risk.fees")
 
     if account_source is None or not config.get("use_broker_equity", False):
-        return RiskCalculator(limits)
+        return RiskCalculator(limits, fees)
 
     try:
         equity = account_source.get_balance().equity
@@ -273,7 +277,7 @@ def build_risk_calculator(
             "موجودی کارگزاری خوانده نشد؛ `account_equity` تنظیمات استفاده می‌شود: %s",
             exc,
         )
-        return RiskCalculator(limits)
+        return RiskCalculator(limits, fees)
 
     if equity <= 0:
         logger.warning(
@@ -281,14 +285,16 @@ def build_risk_calculator(
             f"{equity:,.0f}",
             f"{limits.account_equity:,.0f}",
         )
-        return RiskCalculator(limits)
+        return RiskCalculator(limits, fees)
 
     logger.info(
         "دارایی حساب از کارگزاری خوانده شد: %s ریال (جای %s در yaml).",
         f"{equity:,.0f}",
         f"{limits.account_equity:,.0f}",
     )
-    return RiskCalculator(dataclasses.replace(limits, account_equity=equity))
+    return RiskCalculator(
+        dataclasses.replace(limits, account_equity=equity), fees
+    )
 
 
 def build_generator_config(settings: dict[str, Any]) -> GeneratorConfig:

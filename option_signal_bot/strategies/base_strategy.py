@@ -137,7 +137,11 @@ class BaseStrategy(ABC):
             underlying=context.underlying,
             underlying_price=context.spot,
             confidence=confidence,
+            # فیلد درجه‌یک؛ اشتباهش ارزش موقعیت را ۱۰۰۰ برابر غلط می‌کند
+            contract_size=contract.contract_size,
             metadata={
+                # در metadata هم می‌ماند، برای سازگاری با مصرف‌کننده‌های
+                # قبلی (خروجی JSON و رکوردهای موجود دیتابیس).
                 "contract_size": contract.contract_size,
                 "days_to_expiry": contract.days_to_expiry(context.today()),
                 "open_interest": contract.open_interest,
