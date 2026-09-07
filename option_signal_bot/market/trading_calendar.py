@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
@@ -193,6 +193,8 @@ class TradingCalendar:
         #: از «نبودِ روز در تاریخچه» نتیجه بگیریم تعطیل بوده.
         self._observed_from: date | None = None
         self._observed_to: date | None = None
+        #: یادگیریِ عقب‌انداخته‌شده؛ `defer_learning` پرش می‌کند
+        self._learner: Callable[[TradingCalendar], None] | None = None
         self._load_cache()
 
     # -- تداوم روی دیسک ---------------------------------------------
@@ -295,10 +297,34 @@ class TradingCalendar:
         """افزودن تعطیلی دستی (مثلاً تعطیلی اضطراری اعلام‌شده)."""
         self._holidays |= set(days)
 
+    def defer_learning(self, learner: Callable[[TradingCalendar], None]) -> None:
+        """یادگیری را تا **اولین پرسش واقعی** عقب می‌اندازد.
+
+        بدون این، ساختنِ تقویم یعنی یک سال تاریخچه از شبکه — و هر کسی که
+        فقط wiring می‌خواهد (تست‌ها، `--dry-run`، ساختِ داشبورد) هزینه‌اش
+        را می‌داد. یک بار اتفاق می‌افتد؛ آخرهفته حتی همان یک بار را هم
+        لازم ندارد، چون قبلش جواب داده می‌شود.
+        """
+        self._learner = learner
+
+    def _learn_if_needed(self) -> None:
+        """قرارداد مهم: حتی اگر یادگیری **شکست بخورد**، دوباره تلاش نمی‌شود.
+
+        وگرنه در نبودِ شبکه، هر پرسشِ تقویم یک تایم‌اوت می‌شد و یک پاس
+        رصد ساده دقیقه‌ها طول می‌کشید.
+        """
+        learner, self._learner = self._learner, None
+        if learner is not None:
+            learner(self)
+
     def is_holiday(self, day: date) -> bool:
         """آیا بازار در این روز تعطیل است؟"""
         if is_weekend(day):
+            # آخرهفته قطعی است و به هیچ داده‌ای نیاز ندارد — پس اینجا
+            # عمداً **قبل از** یادگیری جواب داده می‌شود.
             return True
+
+        self._learn_if_needed()
         if day in self._holidays:
             return True
         # جدول شمسی-ثابت فقط جایی حرف می‌زند که تاریخچه‌ی واقعی نداریم؛

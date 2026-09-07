@@ -20,6 +20,9 @@ market_data:
   history_days: 90
   risk_free_rate: 0.28         # نرخ بهره بدون ریسک سالانه (اعشاری)
   history_ttl_seconds: 900     # کش تاریخچه (فقط provider=tsetmc)
+  # پوشه‌ی تاریخچه‌ی ضبط‌شده. اگر داده شود، تاریخچه از دیسک
+  # خوانده می‌شود نه شبکه — همان چیزی که تست‌ها استفاده می‌کنند.
+  # history_dir: tests/fixtures/history
 
 option_chain:
   # tsetmc  = زنجیره واقعی از دیده‌بان بازار آپشن TSETMC (یک درخواست، کل بازار)

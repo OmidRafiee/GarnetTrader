@@ -76,6 +76,11 @@ MARKET_DATA_PROVIDERS: dict[str, Callable[[dict[str, Any]], MarketDataClient]] =
         timeout=config.get("timeout", 20),
         retries=config.get("retries", 3),
         history_ttl_seconds=config.get("history_ttl_seconds", 900.0),
+        # پوشه‌ی تاریخچه‌ی ضبط‌شده. کلاینت از قبل پشتیبانی‌اش می‌کرد ولی به
+        # تنظیمات وصل نبود، پس تست‌ها راهی نداشتند جز رفتن به شبکه.
+        history_dir=(
+            resolve_path(config["history_dir"]) if config.get("history_dir") else None
+        ),
     ),
 }
 
@@ -608,13 +613,17 @@ def build_trading_calendar(
     )
 
     if market_data is not None and config.get("learn_from_market", True):
-        learned = calendar.learn_from_client(
-            market_data,
-            symbol=config.get("reference_symbol", "خودرو"),
-            days=int(config.get("learn_days", 365)),
-        )
-        if learned:
-            calendar.save()
+        symbol = config.get("reference_symbol", "خودرو")
+        days = int(config.get("learn_days", 365))
+
+        def _learn(cal: TradingCalendar) -> None:
+            if cal.learn_from_client(market_data, symbol=symbol, days=days):
+                cal.save()
+
+        # عقب‌انداخته می‌شود، نه همین‌جا: `create_app` را هر کسی صدا می‌زند
+        # که فقط wiring می‌خواهد — تست‌ها، `--dry-run`، ساختِ داشبورد. اگر
+        # اینجا یاد بگیریم، همه‌ی آن‌ها یک سال تاریخچه از شبکه می‌کشند.
+        calendar.defer_learning(_learn)
     return calendar
 
 

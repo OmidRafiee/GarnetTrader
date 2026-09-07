@@ -23,12 +23,31 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
-    """کلاینت تست با `settings.yaml` موقت، تا تنظیمات واقعی دست‌نخورده بماند."""
+    """کلاینت تست با `settings.yaml` موقت، تا تنظیمات واقعی دست‌نخورده بماند.
+
+    تنظیمات به **پاسخ ضبط‌شده** وصل می‌شود، نه TSETMC زنده. بدون این،
+    `/api/status` تقویم را می‌پرسد، تقویم یک سال تاریخچه از شبکه می‌کشد و
+    تست به ساعت بازار و دسترسی به اینترنت گره می‌خورد — تستی که وقتی
+    بازار بسته است بخوابد، تست نیست.
+    """
     from web import api as web_api
 
     example = Path(web_api.EXAMPLE_PATH)
+    data = yaml.safe_load(example.read_text(encoding="utf-8")) or {}
+
+    fixture = Path(__file__).parent / "fixtures" / "tsetmc_option_market_watch.json"
+    data.setdefault("market_data", {})["fixture_path"] = str(fixture)
+    data["market_data"]["history_dir"] = str(Path(__file__).parent / "fixtures" / "history")
+    data["market_data"]["symbols"] = ["خودرو", "شستا"]
+    data.setdefault("option_chain", {})["provider"] = "fixture"
+    data["option_chain"]["fixture_path"] = str(fixture)
+    # تقویم هم نباید از شبکه یاد بگیرد
+    data.setdefault("trading_calendar", {})["learn_from_market"] = False
+
     settings = tmp_path / "settings.yaml"
-    settings.write_text(example.read_text(encoding="utf-8"), encoding="utf-8")
+    settings.write_text(
+        yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8"
+    )
 
     monkeypatch.setattr(web_api, "SETTINGS_PATH", settings)
     with TestClient(web_api.app) as test_client:
