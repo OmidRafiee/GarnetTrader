@@ -936,7 +936,7 @@ type var\emofid\api_inventory.md
 - [x] **PT-6**: ویرایش گاردِ AST در `tests/test_signal_generator.py`
       (`test_only_execution_layer_imports_execution`) برای افزودن استثنای تک‌فایلی
       `"web/api.py"` + به‌روزرسانی docstring ماژول `web/api.py`
-- [ ] **PT-7**: افزودن endpoint های جدید در `web/api.py` زیر `/api/paper-trading/*`
+- [x] **PT-7**: افزودن endpoint های جدید در `web/api.py` زیر `/api/paper-trading/*`
       (settings، orders، positions، account، report، reset) + اجرای سیگنال با یک کلیک
 - [ ] **PT-8**: افزودن تب و پنل «معاملات کاغذی» در `web/static/index.html` و `app.js`
       (فرم سفارش، جدول پوزیشن‌های باز، تاریخچه، دکمه ریست، دکمه اجرای سیگنال)
