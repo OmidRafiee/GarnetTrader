@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -845,6 +845,77 @@ def get_account() -> dict[str, Any]:
     }
 
 
+@app.get("/api/chart")
+async def get_chart(
+    underlying: str,
+    symbol: str | None = None,
+    ins_code: str | None = None,
+    days: int = 120,
+) -> dict[str, Any]:
+    """نمودار معاملاتی یک سیگنال: نماد پایه + پرمیوم خودِ قرارداد.
+
+    دو سری برمی‌گردد چون دو سؤال متفاوت‌اند: «پایه کجا می‌رود» و «این
+    قرارداد چه کرد». مقیاسشان هم کاملاً فرق دارد (پایه ۷۵۰، پرمیوم
+    ۳۳٬۰۰۰)، پس UI باید دو محور جدا بکشد.
+
+    `premium` می‌تواند خالی باشد — قراردادهای قدیمی `ins_code` ذخیره‌شده
+    ندارند. آن‌وقت فقط نمودار پایه نشان داده می‌شود، که از هیچ بهتر است.
+    """
+
+    def _work() -> dict[str, Any]:
+        settings = _settings()
+        context = create_app(settings, dry_run=True)
+        try:
+            candles = context.market_data.get_history(underlying, days=days)
+        finally:
+            context.close()
+
+        base = [
+            {
+                "date": c.date.isoformat(),
+                "open": c.open,
+                "high": c.high,
+                "low": c.low,
+                "close": c.close,
+                "volume": c.volume,
+            }
+            for c in candles
+        ]
+
+        premium: list[dict[str, Any]] = []
+        if ins_code:
+            from data.option_history import OptionHistoryClient
+
+            for bar in OptionHistoryClient().try_get_history(ins_code, symbol or ""):
+                premium.append(
+                    {
+                        "date": bar.date.isoformat(),
+                        "close": bar.close,
+                        "high": bar.high,
+                        "low": bar.low,
+                        "volume": bar.volume,
+                        # روزِ بدون معامله باید در نمودار **دیده** شود:
+                        # قیمتش تکرار دیروز است، نه حرکت واقعی.
+                        "traded": bar.traded,
+                    }
+                )
+
+        return {
+            "underlying": underlying,
+            "symbol": symbol,
+            "days": days,
+            "base": base,
+            "premium": premium,
+            "premium_available": bool(premium),
+        }
+
+    try:
+        return await asyncio.to_thread(_work)
+    except Exception as exc:
+        logger.exception("ساخت نمودار ناموفق بود.")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 @app.get("/api/status")
 def get_status() -> dict[str, Any]:
     """وضعیت کلی برای نوار بالای داشبورد."""
@@ -888,7 +959,26 @@ def get_status() -> dict[str, Any]:
         "today_jalali": today_jalali,
         "next_trading_day": next_trading_day,
         "known_holidays": known_holidays,
+        # زمان **همین پاسخ**، نه زمان آخرین پاس رصد. کاربر با این
+        # می‌فهمد صفحه تازه است یا مانده.
+        "server_time": datetime.now().isoformat(timespec="seconds"),
+        # زمان آخرین سیگنالِ ثبت‌شده — یعنی «آخرین باری که ربات واقعاً
+        # چیزی پیدا کرد». `None` یعنی هنوز هیچ سیگنالی نیست.
+        "last_signal_at": _last_signal_at(settings),
     }
+
+
+def _last_signal_at(settings: dict[str, Any]) -> str | None:
+    """زمان جدیدترین سیگنال ذخیره‌شده، یا `None` اگر هیچ نباشد."""
+    try:
+        with _signal_log(settings) as log:
+            signals = log.all_signals(limit=None)
+        if not signals:
+            return None
+        return max(s.created_at for s in signals).isoformat(timespec="seconds")
+    except Exception as exc:  # نبود این عدد نباید نوار وضعیت را بخواباند
+        logger.warning("زمان آخرین سیگنال خوانده نشد: %s", exc)
+        return None
 
 
 # ----------------------------------------------------------------------

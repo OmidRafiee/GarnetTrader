@@ -428,3 +428,110 @@ def test_live_polling_treats_busy_as_normal():
 
     js = (Path(web_api.STATIC_DIR) / "app.js").read_text(encoding="utf-8")
     assert "در حال اجراست" in js
+
+
+# ----------------------------------------------------------------------
+# آخرین به‌روزرسانی
+# ----------------------------------------------------------------------
+def test_status_reports_when_the_page_was_refreshed(client):
+    body = client.get("/api/status").json()
+    assert body["server_time"], "زمان پاسخ باید همیشه باشد"
+
+
+def test_last_signal_time_is_none_not_zero_when_empty(client):
+    """«هیچ سیگنالی نیست» با «سیگنال قدیمی» فرق دارد."""
+    body = client.get("/api/status").json()
+    assert "last_signal_at" in body
+    assert body["last_signal_at"] is None or isinstance(body["last_signal_at"], str)
+
+
+def test_page_freshness_and_signal_age_are_separate_fields(client):
+    """یکی گرفتنشان یعنی کاربر فکر کند ربات تازه رصد کرده.
+
+    در حالی که فقط صفحه رفرش شده.
+    """
+    body = client.get("/api/status").json()
+    assert "server_time" in body and "last_signal_at" in body
+
+
+# ----------------------------------------------------------------------
+# نمودار سیگنال
+# ----------------------------------------------------------------------
+def test_chart_returns_the_underlying_series(client):
+    body = client.get("/api/chart", params={"underlying": "خودرو", "days": 30}).json()
+    assert body["base"], "سری نماد پایه باید برگردد"
+    for key in ("date", "open", "high", "low", "close", "volume"):
+        assert key in body["base"][0], key
+
+
+def test_chart_without_ins_code_still_shows_the_underlying(client):
+    """سیگنال‌های قدیمی `ins_code` ندارند.
+
+    نمودار پایه از هیچ بهتر است، پس نباید خطا بدهد.
+    """
+    body = client.get("/api/chart", params={"underlying": "خودرو", "days": 30}).json()
+    assert body["premium"] == []
+    assert body["premium_available"] is False
+    assert body["base"]
+
+
+def test_chart_respects_the_day_count(client):
+    body = client.get("/api/chart", params={"underlying": "خودرو", "days": 20}).json()
+    assert len(body["base"]) <= 20
+
+
+def test_chart_marks_untraded_days_when_premium_is_present(client, monkeypatch):
+    """روز بدون معامله باید در نمودار دیده شود.
+
+    قیمتش تکرار دیروز است، نه حرکت واقعی — و نمودار نباید آن را مثل
+    یک معامله‌ی عادی نشان بدهد.
+    """
+    from datetime import date as _date
+
+    from data.option_history import PremiumBar
+
+    bars = [
+        PremiumBar(_date(2026, 9, 1), 1, 1, 1, close=100.0, last=100.0, volume=0, trades=0),
+        PremiumBar(_date(2026, 9, 2), 1, 1, 1, close=110.0, last=110.0, volume=5, trades=2),
+    ]
+    monkeypatch.setattr(
+        "data.option_history.OptionHistoryClient.try_get_history",
+        lambda self, ins, sym="": bars,
+    )
+    body = client.get(
+        "/api/chart",
+        params={"underlying": "خودرو", "symbol": "x", "ins_code": "1", "days": 30},
+    ).json()
+
+    assert body["premium_available"] is True
+    assert [p["traded"] for p in body["premium"]] == [False, True]
+
+
+def test_chart_reports_a_bad_symbol_instead_of_crashing(client):
+    res = client.get("/api/chart", params={"underlying": "نماد_وجود_ندارد"})
+    assert res.status_code == 500
+    assert res.json()["detail"]
+
+
+def test_signal_cards_are_clickable_and_lazy():
+    """نمودار باید تنبل بارگذاری شود.
+
+    کشیدنِ نمودارِ همه‌ی سیگنال‌ها یعنی ده‌ها درخواست برای چیزی که
+    کاربر اصلاً ندیده.
+    """
+    from web import api as web_api
+
+    js = (Path(web_api.STATIC_DIR) / "app.js").read_text(encoding="utf-8")
+    assert "renderSignalChart" in js
+    assert "dataset.loaded" in js, "باید فقط یک بار بارگذاری شود"
+    assert 'card.tabIndex = 0' in js, "با کیبورد هم باید باز شود"
+
+
+def test_chart_is_drawn_without_a_charting_library():
+    """هسته و داشبورد هر دو بدون وابستگی خارجی کار می‌کنند."""
+    from web import api as web_api
+
+    html = (Path(web_api.STATIC_DIR) / "index.html").read_text(encoding="utf-8")
+    assert "cdn" not in html.lower()
+    js = (Path(web_api.STATIC_DIR) / "app.js").read_text(encoding="utf-8")
+    assert "createElementNS" in js, "SVG درون‌خطی، نه کتابخانه"

@@ -404,3 +404,63 @@ th { color: var(--text-faint); font-weight: 500; font-size: 11.5px; }
 td { font-variant-numeric: tabular-nums; }
 tbody tr:hover { background: var(--bg-3); }
 tbody tr:last-child td { border-bottom: none; }
+
+/* ------------------------------------------------------------------
+   نمودار سیگنال — SVG درون‌خطی، بدون کتابخانه‌ی خارجی
+   ------------------------------------------------------------------ */
+
+/* کارت سیگنال حالا کلیک‌پذیر است؛ باید معلوم باشد */
+.sig.clickable { cursor: pointer; transition: border-color .15s, background .15s; }
+.sig.clickable:hover { background: var(--bg-3); }
+.sig.clickable:focus-visible { outline: 2px solid var(--info); outline-offset: 2px; }
+
+.sig-toggle {
+  margin-inline-start: auto;
+  color: var(--text-faint);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.sig.open .sig-toggle { color: var(--info); }
+
+.sig-chart {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.chart-tabs { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+.chart-tab {
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  border-radius: var(--radius-sm);
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.chart-tab.active { background: var(--garnet); border-color: var(--garnet); color: #fff; }
+.chart-tab:disabled { opacity: .45; cursor: not-allowed; }
+
+/* نمودار روی موبایل هم باید خوانا بماند */
+.chart-wrap { width: 100%; overflow-x: auto; }
+.chart-svg { display: block; width: 100%; height: auto; min-width: 320px; }
+
+.chart-grid { stroke: var(--border); stroke-width: 1; }
+.chart-line { fill: none; stroke: var(--info); stroke-width: 1.8; }
+.chart-line.premium { stroke: var(--garnet-soft); }
+.chart-area { fill: var(--info); opacity: .10; }
+.chart-area.premium { fill: var(--garnet-soft); }
+
+/* خط قیمت اعمال و قیمت ورود — مرجع بصری سیگنال */
+.chart-ref { stroke-dasharray: 4 3; stroke-width: 1.2; }
+.chart-ref.strike { stroke: var(--warn); }
+.chart-ref.entry  { stroke: var(--text-faint); }
+
+/* روزهایی که قرارداد اصلاً معامله نشده: قیمتشان تکرار دیروز است */
+.chart-untraded { fill: var(--put); opacity: .55; }
+
+.chart-axis { fill: var(--text-faint); font-size: 10px; }
+.chart-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 6px; font-size: 11px; color: var(--text-dim); }
+.chart-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-inline-end: 4px; vertical-align: -1px; }
+.chart-note { margin-top: 6px; font-size: 11px; color: var(--text-faint); }
