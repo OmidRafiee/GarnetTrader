@@ -30,6 +30,28 @@ class StrategyContext:
     #: برچسب منبع داده (مثل "mock+mock" یا "pytse+tsetmc") برای درج در سیگنال
     data_source: str = "unknown"
 
+    #: تعداد سهمِ پایه که کاربر **واقعاً** دارد.
+    #:
+    #: سه حالت، و تفاوت‌شان مهم است:
+    #:   `None` → نمی‌دانیم (کارگزاری خاموش، یا دارایی سهم را نمی‌دهد)
+    #:   `0`    → می‌دانیم که هیچ سهمی ندارد
+    #:   `> 0`  → می‌دانیم چقدر دارد
+    #:
+    #: عمداً یک **عدد** است، نه کلاینت کارگزاری: استراتژی حق دسترسی به
+    #: شبکه و حساب را ندارد (گارد AST این را تست می‌کند). داده می‌آید، نه
+    #: توانایی.
+    underlying_holding: int | None = None
+
+    #: جایگاه IV امروز در تاریخچه‌ی **خودِ** این نماد (`IVRank`).
+    #:
+    #: چرا لازم است: مقایسه‌ی `iv/realized` پرمیوم ریسکِ ذاتی هر نماد را
+    #: نمی‌بیند. اگر روی نمادی IV همیشه ۱٫۵ برابر نوسان تاریخی باشد، آن
+    #: معیار همیشه «گران» می‌گوید — یعنی نماد را انتخاب می‌کند نه لحظه را.
+    #:
+    #: `None` یعنی تاریخچه‌ی کافی نیست. استراتژی باید آن را از «متوسط»
+    #: تشخیص بدهد، وگرنه با اعتماد کاذب روی داده‌ی ناکافی معامله می‌کند.
+    iv_rank: Any | None = None
+
     @property
     def spot(self) -> float:
         """قیمت نماد پایه.
@@ -109,10 +131,7 @@ class BaseStrategy(ABC):
         """
         premium = contract.mid_price or 0.0
         # خریدار سمت ask را می‌پردازد و فروشنده سمت bid را می‌گیرد.
-        if side is Side.BUY:
-            price = contract.ask or premium
-        else:
-            price = contract.bid or premium
+        price = (contract.ask or premium) if side is Side.BUY else (contract.bid or premium)
 
         return Signal(
             symbol=contract.symbol,
@@ -128,8 +147,14 @@ class BaseStrategy(ABC):
             underlying=context.underlying,
             underlying_price=context.spot,
             confidence=confidence,
+            # فیلد درجه‌یک؛ اشتباهش ارزش موقعیت را ۱۰۰۰ برابر غلط می‌کند
+            contract_size=contract.contract_size,
             metadata={
+                # در metadata هم می‌ماند، برای سازگاری با مصرف‌کننده‌های
+                # قبلی (خروجی JSON و رکوردهای موجود دیتابیس).
                 "contract_size": contract.contract_size,
+                # کلیدِ خواندن تاریخچه‌ی پرمیوم همین قرارداد در بک‌تست
+                "ins_code": contract.ins_code,
                 "days_to_expiry": contract.days_to_expiry(context.today()),
                 "open_interest": contract.open_interest,
                 "data_source": context.data_source,

@@ -23,12 +23,31 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
-    """کلاینت تست با `settings.yaml` موقت، تا تنظیمات واقعی دست‌نخورده بماند."""
+    """کلاینت تست با `settings.yaml` موقت، تا تنظیمات واقعی دست‌نخورده بماند.
+
+    تنظیمات به **پاسخ ضبط‌شده** وصل می‌شود، نه TSETMC زنده. بدون این،
+    `/api/status` تقویم را می‌پرسد، تقویم یک سال تاریخچه از شبکه می‌کشد و
+    تست به ساعت بازار و دسترسی به اینترنت گره می‌خورد — تستی که وقتی
+    بازار بسته است بخوابد، تست نیست.
+    """
     from web import api as web_api
 
     example = Path(web_api.EXAMPLE_PATH)
+    data = yaml.safe_load(example.read_text(encoding="utf-8")) or {}
+
+    fixture = Path(__file__).parent / "fixtures" / "tsetmc_option_market_watch.json"
+    data.setdefault("market_data", {})["fixture_path"] = str(fixture)
+    data["market_data"]["history_dir"] = str(Path(__file__).parent / "fixtures" / "history")
+    data["market_data"]["symbols"] = ["خودرو", "شستا"]
+    data.setdefault("option_chain", {})["provider"] = "fixture"
+    data["option_chain"]["fixture_path"] = str(fixture)
+    # تقویم هم نباید از شبکه یاد بگیرد
+    data.setdefault("trading_calendar", {})["learn_from_market"] = False
+
     settings = tmp_path / "settings.yaml"
-    settings.write_text(example.read_text(encoding="utf-8"), encoding="utf-8")
+    settings.write_text(
+        yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8"
+    )
 
     monkeypatch.setattr(web_api, "SETTINGS_PATH", settings)
     with TestClient(web_api.app) as test_client:
@@ -49,6 +68,13 @@ def test_status_reports_data_source(client):
     assert "market_data_provider" in body
     assert "option_chain_provider" in body
     assert "signal_count" in body
+
+
+def test_status_exposes_trading_calendar_fields(client):
+    """کلیدهای تقویم باید همیشه باشند، حتی وقتی شبکه نیست و مقدارشان None است."""
+    body = client.get("/api/status").json()
+    for key in ("today_jalali", "next_trading_day", "known_holidays"):
+        assert key in body
 
 
 def test_strategies_expose_defaults_and_current(client):
@@ -173,6 +199,32 @@ def test_empty_risk_patch_is_rejected(client):
 
 
 # ----------------------------------------------------------------------
+# حساب کارگزاری
+# ----------------------------------------------------------------------
+def test_account_is_disabled_by_default(client):
+    """اتصال به حساب باید صریحاً روشن شود، نه اینکه پیش‌فرض باشد."""
+    body = client.get("/api/account").json()
+    assert body["enabled"] is False
+    assert body["positions"] == []
+    assert body["reason"], "باید دلیل خاموش بودن را بگوید"
+
+
+def test_account_reports_broker_failure_without_crashing(client, monkeypatch):
+    """سشن منقضی نباید داشبورد را بخواباند؛ پیام روشن باید بدهد."""
+    import yaml
+
+    path = client.settings_path
+    data = _load(path)
+    data["broker"] = {"enabled": True, "session_file": "var/does-not-exist.json"}
+    path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+
+    body = client.get("/api/account").json()
+    assert body["enabled"] is True
+    assert body["reason"]  # پیام خطا هست
+    assert body["positions"] == []
+
+
+# ----------------------------------------------------------------------
 # ایمنی
 # ----------------------------------------------------------------------
 def test_web_layer_cannot_reach_execution():
@@ -184,3 +236,145 @@ def test_web_layer_cannot_reach_execution():
     source = Path(importlib.import_module("web.api").__file__).read_text(encoding="utf-8")
     assert "import execution" not in source
     assert "from execution" not in source
+
+# ----------------------------------------------------------------------
+# انتخاب منبع داده
+# ----------------------------------------------------------------------
+def test_datasource_lists_only_real_providers(client):
+    body = client.get("/api/datasource").json()
+    assert "tsetmc" in body["available_market_data"]
+    assert "tsetmc" in body["available_option_chain"]
+    # داده‌ی ساختگی حذف شده؛ نباید در گزینه‌ها باشد
+    assert "mock" not in body["available_market_data"]
+    assert "mock" not in body["available_option_chain"]
+
+
+def test_datasource_change_round_trips(client):
+    response = client.put("/api/datasource", json={"market_data_provider": "pytse"})
+    assert response.status_code == 200
+    assert _load(client.settings_path)["market_data"]["provider"] == "pytse"
+
+
+def test_unknown_provider_is_rejected(client):
+    response = client.put("/api/datasource", json={"option_chain_provider": "nope"})
+    assert response.status_code == 400
+    assert "nope" in response.json()["detail"]
+
+
+def test_enrichment_requires_broker_to_be_enabled(client):
+    """غنی‌سازی بدون کارگزاری بی‌معناست و باید صریح رد شود.
+
+    اگر بی‌صدا پذیرفته شود، کاربر فکر می‌کند وجه تضمین از کارگزاری
+    می‌آید در حالی که هیچ‌وقت نمی‌آید.
+    """
+    response = client.put("/api/datasource", json={"enrich_with_broker": True})
+    assert response.status_code == 400
+    assert "حساب" in response.json()["detail"]
+
+
+def test_enrichment_allowed_once_broker_is_on(client):
+    import yaml
+
+    path = client.settings_path
+    data = _load(path)
+    data["broker"] = {"enabled": True, "token": "x"}
+    path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+
+    response = client.put("/api/datasource", json={"enrich_with_broker": True})
+    assert response.status_code == 200
+    assert _load(path)["option_chain"]["enrich_with_broker"] is True
+
+
+def test_enrich_limit_is_bounded(client):
+    """سقف بالا لازم است: هر واحد یک درخواست شبکه در هر پاس است."""
+    assert client.put("/api/datasource", json={"enrich_limit": 5000}).status_code == 400
+    assert client.put("/api/datasource", json={"enrich_limit": -1}).status_code == 400
+    assert client.put("/api/datasource", json={"enrich_limit": 10}).status_code == 200
+
+
+def test_broker_token_is_never_returned(client):
+    """توکن نباید از هیچ endpointی برگردد."""
+    client.put("/api/broker", json={"enabled": True, "token": "SECRET_TOKEN_123"})
+
+    for path in ("/api/datasource", "/api/status", "/api/account"):
+        assert "SECRET_TOKEN_123" not in client.get(path).text, f"توکن در {path} لو رفت"
+
+
+def test_risk_exposes_use_broker_equity(client):
+    assert "use_broker_equity" in client.get("/api/risk").json()
+
+
+def test_use_broker_equity_can_be_toggled(client):
+    """چک‌باکس باید boolean بنشیند، نه ۰/۱ — وگرنه سوئیچ بی‌اثر است."""
+    res = client.put("/api/risk", json={"use_broker_equity": True})
+    assert res.status_code == 200
+
+    stored = _load(client.settings_path)
+    assert stored["risk"]["use_broker_equity"] is True
+    assert client.get("/api/risk").json()["use_broker_equity"] is True
+
+
+def test_toggling_broker_equity_keeps_other_risk_values(client):
+    before = client.get("/api/risk").json()
+    client.put("/api/risk", json={"use_broker_equity": True})
+    after = client.get("/api/risk").json()
+
+    assert after["account_equity"] == before["account_equity"]
+    assert after["max_contracts"] == before["max_contracts"]
+
+
+def test_structure_kinds_match_the_scanner(client):
+    """داشبورد فهرستش را از سرور می‌گیرد؛ اگر عقب بیفتد، ساختار تازه دیده نمی‌شود."""
+    from strategies.scanner import SCAN_KINDS
+
+    body = client.get("/api/structures/kinds").json()
+    keys = [k["key"] for k in body["kinds"]]
+    assert keys == list(SCAN_KINDS)
+    assert all(k["label"].strip() for k in body["kinds"])
+
+
+def test_unknown_structure_kind_is_rejected(client):
+    res = client.get("/api/structures", params={"underlying": "خودرو", "kind": "nope"})
+    assert res.status_code == 400
+
+
+def test_rank_keys_are_exposed(client):
+    body = client.get("/api/structures/rank-keys").json()
+    assert any(k["key"] == "roi" for k in body["keys"])
+
+
+def test_report_exposes_performance_metrics(client):
+    """داشبورد باید معیارها را ببیند، وگرنه فقط نرخ برد را نشان می‌دهد."""
+    body = client.get("/api/report").json()
+    assert "metrics" in body
+    assert "equity_curve" in body
+    for key in (
+        "expectancy_pct",
+        "sharpe_per_signal",
+        "sortino_per_signal",
+        "max_drawdown_pct",
+        "profit_factor",
+        "longest_losing_streak",
+    ):
+        assert key in body["metrics"], key
+
+
+def test_report_metrics_use_none_for_unknown(client):
+    """پایگاه‌داده‌ی تست خالی است؛ معیارها باید `null` باشند، نه صفر."""
+    metrics = client.get("/api/report").json()["metrics"]
+    if metrics["total"] == 0:
+        assert metrics["expectancy_pct"] is None
+        assert metrics["sharpe_per_signal"] is None
+
+
+def test_iv_surface_endpoint_reports_level_skew_and_term(client):
+    body = client.get("/api/iv-surface", params={"underlying": "خودرو"}).json()
+    for key in ("atm_iv", "mean_iv", "skew", "term_structure", "iv_rank"):
+        assert key in body, key
+
+
+def test_iv_rank_is_null_until_history_is_long_enough(client):
+    """`None` یعنی تاریخچه کافی نیست — نه «متوسط»."""
+    body = client.get("/api/iv-surface", params={"underlying": "خودرو"}).json()
+    if body.get("history_samples", 0) < 20:
+        assert body["iv_rank"] is None

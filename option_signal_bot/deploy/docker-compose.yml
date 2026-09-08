@@ -1,0 +1,54 @@
+# اجرای دائمی ربات + داشبورد.
+#
+#   docker compose -f deploy/docker-compose.yml up -d
+#
+# ⚠️ هیچ سرویسی اینجا سفارش ثبت نمی‌کند.
+
+services:
+  # حلقه‌ی رصد بازار
+  bot:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: garnet-trader:latest
+    container_name: garnet-bot
+    restart: unless-stopped
+    # `config` و `var` از بیرون mount می‌شوند تا بازسازی ایمیج،
+    # تنظیمات و تاریخچه‌ی سیگنال را پاک نکند.
+    volumes:
+      - ../config:/app/config
+      - ../var:/app/var
+    environment:
+      # توکن هرگز در فایل نمی‌نشیند؛ از محیط می‌آید.
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+    # لاگ محدود شود، وگرنه اجرای چندماهه دیسک را پر می‌کند.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  # داشبورد وب
+  dashboard:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: garnet-trader:latest
+    container_name: garnet-dashboard
+    restart: unless-stopped
+    # 🔒 فقط روی لوکال‌هاست. داشبورد **احراز هویت ندارد** و تنظیمات را
+    # می‌نویسد؛ باز کردنش روی شبکه یعنی هر کسی می‌تواند تنظیمات ریسک و
+    # توکن کارگزاری را ببیند.
+    ports:
+      - "127.0.0.1:8787:8787"
+    volumes:
+      - ../config:/app/config
+      - ../var:/app/var
+    entrypoint: ["python", "-m", "web"]
+    command: ["--host", "0.0.0.0", "--no-browser"]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"

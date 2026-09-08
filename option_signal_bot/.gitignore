@@ -5,6 +5,11 @@ config/settings.yaml
 # خروجی‌های اجرا (دیتابیس سیگنال‌ها، لاگ JSONL)
 var/
 
+# خروجی بسته‌بندی (`python -m build`)
+build/
+dist/
+*.egg-info/
+
 # پایتون
 __pycache__/
 *.py[cod]

@@ -1,0 +1,87 @@
+# CI: هر push و PR باید تست و لینت را پاس کند.
+#
+# دو نکته‌ی طراحی که عمدی‌اند:
+#
+# ۱. **شبکه لازم نیست.** تست‌ها روی پاسخ‌های واقعیِ **ضبط‌شده‌ی** TSETMC
+#    اجرا می‌شوند (`tests/fixtures/`)، نه روی داده‌ی زنده. پس CI به ساعت
+#    بازار تهران، به دسترسی به cdn.tsetmc.com و به هیچ توکنی وابسته نیست.
+#    این همان چیزی است که CI را قابل‌اتکا می‌کند: یک تست که وقتی بازار
+#    بسته است شکست بخورد، عملاً تست نیست.
+#
+# ۲. **وابستگی کمینه.** هسته‌ی پروژه با کتابخانه‌ی استاندارد کار می‌کند
+#    (Black-Scholes، IV، تلگرام، SQLite همه بدون وابستگی خارجی). فقط
+#    داشبورد و خواندن yaml وابستگی دارند. پس اینجا `requirements.txt`
+#    کامل نصب نمی‌شود — numpy/pandas/scipy/playwright برای تست لازم
+#    نیستند و نصبشان فقط CI را کند و شکننده می‌کند.
+
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  # اجرای دستی از تب Actions
+  workflow_dispatch:
+
+# دو push پشت‌سرهم روی یک شاخه: اجرای قبلی لغو شود
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: option_signal_bot
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # ۳.۱۱ کمینه‌ی پروژه است (`target-version = "py311"`)؛ ۳.۱۲ همان
+        # نسخه‌ای است که توسعه روی آن انجام می‌شود.
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: نصب پایتون ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: نصب وابستگی‌های تست
+        run: |
+          python -m pip install --upgrade pip
+          # فقط چیزی که تست‌ها واقعاً لازم دارند
+          python -m pip install pytest ruff PyYAML fastapi httpx
+
+      - name: لینت (ruff)
+        run: python -m ruff check .
+
+      - name: تست (pytest)
+        run: python -m pytest -q
+
+  # گارد جداگانه، چون شکستنش معنای متفاوتی دارد: نه یک باگ، بلکه نقض
+  # یک قرارداد معماری که کل ایمنی این پروژه بر آن بنا شده.
+  architecture-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: نصب وابستگی‌های تست
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest PyYAML fastapi httpx
+
+      - name: گارد AST — هیچ ماژولی لایه اجرا را import نمی‌کند
+        run: python -m pytest tests/test_signal_generator.py -q -k "guard or import or execution"
+
+      - name: گارد داده‌ی واقعی — provider ساختگی برنگشته باشد
+        run: python -m pytest tests/test_bootstrap.py -q -k "mock or real"

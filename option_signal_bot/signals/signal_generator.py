@@ -8,9 +8,12 @@
 
 from __future__ import annotations
 
+import dataclasses
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from typing import Any
 
 from data.market_data_client import MarketDataClient
 from data.option_chain_client import OptionChainClient
@@ -45,6 +48,8 @@ class SignalGenerator:
         strategies: list[BaseStrategy],
         risk_calculator: RiskCalculator | None = None,
         config: GeneratorConfig | None = None,
+        holdings_provider: Callable[[], dict[str, int]] | None = None,
+        iv_history: Any | None = None,
     ) -> None:
         self.market_data = market_data
         self.option_chain = option_chain
@@ -52,17 +57,81 @@ class SignalGenerator:
         self.risk_calculator = risk_calculator or RiskCalculator()
         self.config = config or GeneratorConfig()
         self._last_emitted: dict[str, datetime] = {}
+        #: تابعی که «نام نماد → تعداد سهم» می‌دهد. عمداً یک callable است و
+        #: نه کلاینت کارگزاری: این لایه هم مثل استراتژی‌ها نباید بداند
+        #: کارگزاری کیست.
+        self.holdings_provider = holdings_provider
+        #: کش یک‌پاسی. بدون این، هر نماد یک درخواست به کارگزاری می‌زند
+        #: در حالی که یک پاسخ همه‌ی دارایی‌ها را دارد.
+        self._holdings: dict[str, int] | None = None
+        #: تاریخچه‌ی IV هر نماد (`IVHistory`) — برای تشخیص گران/ارزان
+        #: نسبت به گذشته‌ی **خودِ** نماد، نه نسبت به یک آستانه‌ی سراسری.
+        self.iv_history = iv_history
+
+        # ------------------------------------------------------------------
+        # شمارنده‌های آخرین پاس — برای پایش سلامت.
+        #
+        # این کلاس عمداً خطای یک نماد یا یک استراتژی را می‌بلعد تا بقیه
+        # بمانند؛ رفتار درستی است، ولی یعنی یک استراتژیِ **کاملاً مرده**
+        # هم بی‌صدا نادیده گرفته می‌شود. پس شکست‌ها شمرده می‌شوند تا
+        # `HealthMonitor` بتواند سکوت را بشکند.
+        # ------------------------------------------------------------------
+        #: نام نمادهایی که در آخرین پاس شکست خوردند
+        self.failed_symbols: list[str] = []
+        #: نام استراتژی → تعداد خطا در آخرین پاس
+        self.strategy_errors: dict[str, int] = {}
+
+    def reset_holdings_cache(self) -> None:
+        """کش دارایی را خالی می‌کند تا پاس بعدی از نو بخواند."""
+        self._holdings = None
+
+    def _holding_for(self, symbol: str) -> int | None:
+        """تعداد سهمِ یک نماد — یا `None` اگر معلوم نباشد.
+
+        تفاوت `None` و `0` تصمیم‌ساز است: اولی «نمی‌دانم» و دومی «نداری».
+        پس شکستِ خواندن هرگز به صفر تبدیل نمی‌شود؛ صفر فقط وقتی برمی‌گردد
+        که واقعاً لیستِ دارایی را دیده باشیم و این نماد در آن نباشد.
+        """
+        if self.holdings_provider is None:
+            return None
+
+        if self._holdings is None:
+            try:
+                self._holdings = self.holdings_provider()
+            except Exception as exc:  # نبود دارایی نباید پاس رصد را بخواباند
+                logger.warning("دارایی سهم خوانده نشد؛ مالکیت نامعلوم ماند: %s", exc)
+                return None
+
+        return self._holdings.get(symbol, 0)
 
     # ------------------------------------------------------------------
     def run_once(self, symbols: list[str] | None = None) -> list[Signal]:
         """یک پاس کامل روی همه نمادها؛ خطای یک نماد بقیه را متوقف نمی‌کند."""
+        # دارایی بین نمادهای یک پاس مشترک است، ولی بین پاس‌ها نه — کاربر
+        # ممکن است وسط دو پاس سهم بخرد یا بفروشد.
+        self.reset_holdings_cache()
+        self.failed_symbols = []
+        self.strategy_errors = {}
+
         signals: list[Signal] = []
         for symbol in symbols or self.config.symbols:
             try:
                 signals.extend(self.generate_for_symbol(symbol))
-            except Exception:  # noqa: BLE001 - یک نماد خراب، حلقه اصلی را نکشد
+            except Exception:  # یک نماد خراب، حلقه اصلی را نکشد
                 logger.exception("تولید سیگنال برای نماد %s شکست خورد.", symbol)
+                self.failed_symbols.append(symbol)
         return signals
+
+    @property
+    def all_symbols_failed(self) -> bool:
+        """آیا **همه‌ی** نمادهای آخرین پاس شکست خوردند؟
+
+        یک نماد خراب طبیعی است (نماد متوقف، داده‌ی ناقص). شکست همه یعنی
+        منبع داده قطع است — و آن، خرابیِ بی‌صدایی است که ربات را «سالم»
+        نشان می‌دهد.
+        """
+        planned = list(self.config.symbols)
+        return bool(planned) and len(self.failed_symbols) >= len(planned)
 
     def generate_for_symbol(self, symbol: str) -> list[Signal]:
         """ساخت context و اجرای همه استراتژی‌ها روی یک نماد پایه."""
@@ -72,16 +141,99 @@ class SignalGenerator:
         for strategy in self.strategies:
             try:
                 raw_signals = strategy.generate(context)
-            except Exception:  # noqa: BLE001 - یک استراتژی خراب، بقیه را نکشد
+            except Exception:
                 logger.exception("استراتژی %s روی %s خطا داد.", strategy.name, symbol)
+                self.strategy_errors[strategy.name] = (
+                    self.strategy_errors.get(strategy.name, 0) + 1
+                )
                 continue
 
-            for signal in raw_signals:
-                final = self._post_process(signal)
-                if final is not None:
-                    collected.append(final)
-                    logger.info("سیگنال صادر شد: %s", final.summary())
+            collected.extend(self._process_batch(raw_signals))
         return collected
+
+    def _process_batch(self, raw_signals: list[Signal]) -> list[Signal]:
+        """پردازش خروجی یک استراتژی، با احترام به گروه‌های چندپایه.
+
+        سیگنال‌های تک‌پایه مستقل پردازش می‌شوند. ولی پایه‌های یک ساختار
+        چندپایه باید **با هم** قبول یا رد شوند: اگر یک پایه‌ی استردل رد
+        شود و دیگری بماند، نتیجه یک کال تنهاست که پروفایل ریسکش کاملاً
+        فرق دارد.
+        """
+        singles: list[Signal] = []
+        groups: dict[str, list[Signal]] = {}
+
+        for signal in raw_signals:
+            group_id = signal.metadata.get("leg_group_id")
+            if group_id:
+                groups.setdefault(str(group_id), []).append(signal)
+            else:
+                singles.append(signal)
+
+        result: list[Signal] = []
+        for signal in singles:
+            final = self._post_process(signal)
+            if final is not None:
+                result.append(final)
+                logger.info("سیگنال صادر شد: %s", final.summary())
+
+        for group_id, legs in groups.items():
+            accepted = self._process_leg_group(group_id, legs)
+            result.extend(accepted)
+        return result
+
+    def _process_leg_group(self, group_id: str, legs: list[Signal]) -> list[Signal]:
+        """یک گروه چندپایه را **اتمی** پردازش می‌کند."""
+        expected = int(legs[0].metadata.get("leg_count", len(legs)))
+        if len(legs) != expected:
+            logger.warning(
+                "گروه %s ناقص است (%s از %s پایه)؛ کل ساختار رد شد.",
+                group_id, len(legs), expected,
+            )
+            return []
+
+        sized: list[Signal] = []
+        for leg in legs:
+            final = self._post_process(leg, allow_dedupe=False)
+            if final is None:
+                logger.info(
+                    "پایه %s از ساختار %s رد شد؛ کل ساختار صرف‌نظر شد "
+                    "(اجرای ناقص بدتر از اجرا نکردن است).",
+                    leg.symbol, legs[0].strategy_name,
+                )
+                return []
+            sized.append(final)
+
+        # همه‌ی پایه‌ها باید تعداد یکسان (× نسبت) داشته باشند، وگرنه
+        # ساختار چیز دیگری است. کمینه تعیین‌کننده است.
+        base_qty = min(
+            s.suggested_qty // max(int(s.metadata.get("leg_ratio", 1)), 1) for s in sized
+        )
+        if base_qty <= 0:
+            logger.info(
+                "ساختار %s با حدود ریسک جا نشد (تعداد پایه صفر شد).",
+                legs[0].strategy_name,
+            )
+            return []
+
+        for signal in sized:
+            signal.suggested_qty = base_qty * int(signal.metadata.get("leg_ratio", 1))
+
+        # حذف تکراری روی **کل ساختار** انجام می‌شود، نه تک‌تک پایه‌ها
+        key = self._group_dedupe_key(sized)
+        if self._is_duplicate_key(key, sized[0].created_at):
+            logger.debug("ساختار تکراری %s نادیده گرفته شد.", sized[0].strategy_name)
+            return []
+        self._last_emitted[key] = sized[0].created_at
+
+        for signal in sized:
+            logger.info("سیگنال صادر شد: %s", signal.summary())
+        return sized
+
+    @staticmethod
+    def _group_dedupe_key(legs: list[Signal]) -> str:
+        """کلید حذف تکراری برای یک ساختار چندپایه."""
+        parts = sorted(f"{s.symbol}:{s.side.value}:{s.strike}" for s in legs)
+        return "|".join([legs[0].strategy_name, "GROUP", *parts])
 
     @property
     def data_source(self) -> str:
@@ -95,7 +247,8 @@ class SignalGenerator:
         quote = self.market_data.get_quote(symbol)
         history = self.market_data.get_history(symbol, self.config.history_days)
         chain = self.option_chain.get_chain(symbol)
-        return StrategyContext(
+
+        base = StrategyContext(
             underlying=symbol,
             quote=quote,
             history=history,
@@ -103,11 +256,54 @@ class SignalGenerator:
             risk_free_rate=self.config.risk_free_rate,
             now=datetime.now(),
             data_source=self.data_source,
+            underlying_holding=self._holding_for(symbol),
         )
 
+        rank = self._iv_rank_for(base)
+        if rank is None:
+            return base
+        # `StrategyContext` فریز است، پس نسخه‌ی تازه ساخته می‌شود.
+        return dataclasses.replace(base, iv_rank=rank)
+
+    def _iv_rank_for(self, context: StrategyContext) -> Any | None:
+        """IV ATM را ثبت و جایگاهش را در تاریخچه‌ی همین نماد برمی‌گرداند.
+
+        دو کار در یک جا انجام می‌شود چون به هم وابسته‌اند: تاریخچه‌ی IV از
+        هیچ endpoint عمومی در دسترس نیست، پس باید خودمان هر پاس ثبتش کنیم
+        تا روزی صدک معنا پیدا کند.
+
+        شکست اینجا کشنده نیست: بدون رتبه، استراتژی به معیار قبلی
+        (`iv/realized`) برمی‌گردد.
+        """
+        if self.iv_history is None:
+            return None
+
+        try:
+            from pricing.iv_surface import IVSurface
+
+            surface = IVSurface.from_chain(
+                context.chain, context.implied_vol, today=context.today()
+            )
+            atm = surface.atm_iv()
+            if atm is None:
+                return None
+
+            self.iv_history.record(context.underlying, atm, context.today())
+            self.iv_history.save()
+            return self.iv_history.rank(context.underlying, atm)
+        except Exception as exc:  # رتبه‌ی IV یک افزونه است، نه پیش‌نیاز
+            logger.warning("رتبه‌ی IV %s حساب نشد: %s", context.underlying, exc)
+            return None
+
     # ------------------------------------------------------------------
-    def _post_process(self, signal: Signal) -> Signal | None:
-        """اعمال فیلتر اعتماد، محاسبه ریسک و حذف تکراری‌ها."""
+    def _post_process(
+        self, signal: Signal, allow_dedupe: bool = True
+    ) -> Signal | None:
+        """اعمال فیلتر اعتماد، محاسبه ریسک و حذف تکراری‌ها.
+
+        `allow_dedupe=False` برای پایه‌های چندپایه است: حذف تکراری آنجا
+        روی کل ساختار انجام می‌شود، نه تک‌تک پایه‌ها.
+        """
         min_conf = self.config.min_confidence
         if min_conf is not None and (signal.confidence or 0.0) < min_conf:
             logger.debug("سیگنال %s به‌دلیل اعتماد کم رد شد.", signal.symbol)
@@ -123,10 +319,11 @@ class SignalGenerator:
             minutes=self.config.signal_validity_minutes
         )
 
-        if self._is_duplicate(sized):
-            logger.debug("سیگنال تکراری %s نادیده گرفته شد.", sized.symbol)
-            return None
-        self._last_emitted[self._dedupe_key(sized)] = sized.created_at
+        if allow_dedupe:
+            if self._is_duplicate(sized):
+                logger.debug("سیگنال تکراری %s نادیده گرفته شد.", sized.symbol)
+                return None
+            self._last_emitted[self._dedupe_key(sized)] = sized.created_at
         return sized
 
     @staticmethod
@@ -134,6 +331,12 @@ class SignalGenerator:
         return "|".join(
             [signal.strategy_name, signal.symbol, signal.side.value, str(signal.strike)]
         )
+
+    def _is_duplicate_key(self, key: str, now) -> bool:
+        """بررسی تکراری بودن با یک کلید دلخواه (تک‌پایه یا گروه)."""
+        window = timedelta(minutes=self.config.dedupe_window_minutes)
+        previous = self._last_emitted.get(key)
+        return previous is not None and (now - previous) < window
 
     def _is_duplicate(self, signal: Signal) -> bool:
         window = timedelta(minutes=self.config.dedupe_window_minutes)

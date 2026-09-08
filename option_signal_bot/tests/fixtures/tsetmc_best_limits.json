@@ -1,0 +1,126 @@
+{
+  "liquid_call": {
+    "ins_code": "52724381011699987",
+    "payload": {
+      "bestLimits": [
+        {
+          "number": 1,
+          "qTitMeDem": 100,
+          "zOrdMeDem": 1,
+          "pMeDem": 157.0,
+          "pMeOf": 33800.0,
+          "zOrdMeOf": 1,
+          "qTitMeOf": 1,
+          "title": null,
+          "insCode": null
+        },
+        {
+          "number": 2,
+          "qTitMeDem": 300,
+          "zOrdMeDem": 1,
+          "pMeDem": 5.0,
+          "pMeOf": 34000.0,
+          "zOrdMeOf": 2,
+          "qTitMeOf": 101,
+          "title": null,
+          "insCode": null
+        },
+        {
+          "number": 3,
+          "qTitMeDem": 1000,
+          "zOrdMeDem": 1,
+          "pMeDem": 3.0,
+          "pMeOf": 34950.0,
+          "zOrdMeOf": 1,
+          "qTitMeOf": 5,
+          "title": null,
+          "insCode": null
+        },
+        {
+          "number": 4,
+          "qTitMeDem": 1127,
+          "zOrdMeDem": 3,
+          "pMeDem": 1.0,
+          "pMeOf": 35000.0,
+          "zOrdMeOf": 1,
+          "qTitMeOf": 1,
+          "title": null,
+          "insCode": null
+        },
+        {
+          "number": 5,
+          "qTitMeDem": 0,
+          "zOrdMeDem": 0,
+          "pMeDem": 0.0,
+          "pMeOf": 35550.0,
+          "zOrdMeOf": 1,
+          "qTitMeOf": 3,
+          "title": null,
+          "insCode": null
+        }
+      ]
+    }
+  },
+  "thin_put": {
+    "ins_code": "52631478606575330",
+    "payload": {
+      "bestLimits": [
+        {
+          "number": 1,
+          "qTitMeDem": 4062,
+          "zOrdMeDem": 5,
+          "pMeDem": 3.0,
+          "pMeOf": 10.0,
+          "zOrdMeOf": 3,
+          "qTitMeOf": 1440,
+          "title": null,
+          "insCode": null
+        },
+        {
+          "number": 2,
+          "qTitMeDem": 5000,
+          "zOrdMeDem": 5,
+          "pMeDem": 2.0,
+          "pMeOf": 11.0,
+          "zOrdMeOf": 1,
+          "qTitMeOf": 1000,
+          "title": null,
+          "insCode": null
+        },
+        {
+          "number": 3,
+          "qTitMeDem": 10844,
+          "zOrdMeDem": 14,
+          "pMeDem": 1.0,
+          "pMeOf": 12.0,
+          "zOrdMeOf": 1,
+          "qTitMeOf": 1000,
+          "title": null,
+          "insCode": null
+        },
+        {
+          "number": 4,
+          "qTitMeDem": 0,
+          "zOrdMeDem": 0,
+          "pMeDem": 0.0,
+          "pMeOf": 13.0,
+          "zOrdMeOf": 1,
+          "qTitMeOf": 99,
+          "title": null,
+          "insCode": null
+        },
+        {
+          "number": 5,
+          "qTitMeDem": 0,
+          "zOrdMeDem": 0,
+          "pMeDem": 0.0,
+          "pMeOf": 15.0,
+          "zOrdMeOf": 3,
+          "qTitMeOf": 1379,
+          "title": null,
+          "insCode": null
+        }
+      ]
+    }
+  }
+}

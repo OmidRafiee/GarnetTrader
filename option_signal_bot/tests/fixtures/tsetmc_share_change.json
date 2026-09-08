@@ -1,0 +1,193 @@
+{
+  "خودرو": {
+    "ins_code": "65883838195688438",
+    "payload": {
+      "instrumentShareChange": [
+        {
+          "idn": 0,
+          "insCode": "65883838195688438",
+          "dEven": 20250422,
+          "numberOfShareNew": 2563746068000.0,
+          "numberOfShareOld": 301656068000.0,
+          "lVal30": null,
+          "lVal18AFC": null
+        },
+        {
+          "idn": 0,
+          "insCode": "65883838195688438",
+          "dEven": 20200324,
+          "numberOfShareNew": 301656068000.0,
+          "numberOfShareOld": 15300000000.0,
+          "lVal30": null,
+          "lVal18AFC": null
+        },
+        {
+          "idn": 0,
+          "insCode": "65883838195688438",
+          "dEven": 20151124,
+          "numberOfShareNew": 15300000000.0,
+          "numberOfShareOld": 12000000000.0,
+          "lVal30": null,
+          "lVal18AFC": null
+        },
+        {
+          "idn": 0,
+          "insCode": "65883838195688438",
+          "dEven": 20140317,
+          "numberOfShareNew": 12000000000.0,
+          "numberOfShareOld": 9600000000.0,
+          "lVal30": null,
+          "lVal18AFC": null
+        },
+        {
+          "idn": 0,
+          "insCode": "65883838195688438",
+          "dEven": 20130108,
+          "numberOfShareNew": 9600000000.0,
+          "numberOfShareOld": 8820000000.0,
+          "lVal30": null,
+          "lVal18AFC": null
+        },
+        {
+          "idn": 0,
+          "insCode": "65883838195688438",
+          "dEven": 20111031,
+          "numberOfShareNew": 8820000000.0,
+          "numberOfShareOld": 6300000000.0,
+          "lVal30": null,
+          "lVal18AFC": null
+        }
+      ]
+    }
+  },
+  "وبملت": {
+    "ins_code": "778253364357513",
+    "payload": {
+      "instrumentShareChange": [
+        {
+          "idn": 0,
+          "insCode": "778253364357513",
+          "dEven": 20260405,
+          "numberOfShareNew": 3382000000000.0,
+          "numberOfShareOld": 2378440544949.0,
+          "lVal30": null,
+          "lVal18AFC": null
+        },
+        {
+          "idn": 0,
+          "insCode": "778253364357513",
+          "dEven": 20250804,
+          "numberOfShareNew": 2378440544949.0,
+          "numberOfShareOld": 1210000000000.0,
+          "lVal30": null,
+          "lVal18AFC": null
+        },
+        {
+          "idn": 0,
+          "insCode": "778253364357513",
+          "dEven": 20250803,
+          "numberOfShareNew": 2378440544949.0,
+          "numberOfShareOld": 1210000000000.0,
+          "lVal30": null,
+          "lVal18AFC": null
+        },
+        {
+          "idn": 0,
+          "insCode": "778253364357513",
+          "dEven": 20250225,
+          "numberOfShareNew": 1210000000000.0,
+          "numberOfShareOld": 710000000000.0,
+          "lVal30": null,
+          "lVal18AFC": null
+        },
+        {
+          "idn": 0,
+          "insCode": "778253364357513",
+          "dEven": 20240107,
+          "numberOfShareNew": 710000000000.0,
+          "numberOfShareOld": 353000000000.0,
+          "lVal30": null,
+          "lVal18AFC": null
+        },
+        {
+          "idn": 0,
+          "insCode": "778253364357513",
+          "dEven": 20230220,
+          "numberOfShareNew": 353000000000.0,
+          "numberOfShareOld": 262042862000.0,
+          "lVal30": null,
+          "lVal18AFC": null
+        },
+        {
+          "idn": 0,
+          "insCode": "778253364357513",
+          "dEven": 20220626,
+          "numberOfShareNew": 262042862000.0,
+          "numberOfShareOld": 207042862000.0,
+          "lVal30": null,
+          "lVal18AFC": null
+        },
+        {
+          "idn": 0,
+          "insCode": "778253364357513",
+          "dEven": 20200726,
+          "numberOfShareNew": 207042862000.0,
+          "numberOfShareOld": 50000000000.0,
+          "lVal30": null,
+          "lVal18AFC": null
+        },
+        {
+          "idn": 0,
+          "insCode": "778253364357513",
+          "dEven": 20170114,
+          "numberOfShareNew": 50000000000.0,
+          "numberOfShareOld": 40000000000.0,
+          "lVal30": null,
+          "lVal18AFC": null
+        },
+        {
+          "idn": 0,
+          "insCode": "778253364357513",
+          "dEven": 20140225,
+          "numberOfShareNew": 40000000000.0,
+          "numberOfShareOld": 33100000000.0,
+          "lVal30": null,
+          "lVal18AFC": null
+        },
+        {
+          "idn": 0,
+          "insCode": "778253364357513",
+          "dEven": 20120926,
+          "numberOfShareNew": 33100000000.0,
+          "numberOfShareOld": 20000000000.0,
+          "lVal30": null,
+          "lVal18AFC": null
+        },
+        {
+          "idn": 0,
+          "insCode": "778253364357513",
+          "dEven": 20120205,
+          "numberOfShareNew": 20000000000.0,
+          "numberOfShareOld": 16000000000.0,
+          "lVal30": null,
+          "lVal18AFC": null
+        },
+        {
+          "idn": 0,
+          "insCode": "778253364357513",
+          "dEven": 20100725,
+          "numberOfShareNew": 16000000000.0,
+          "numberOfShareOld": 13100000000.0,
+          "lVal30": null,
+          "lVal18AFC": null
+        }
+      ]
+    }
+  },
+  "اهرم": {
+    "ins_code": "17914401175772326",
+    "payload": {
+      "instrumentShareChange": []
+    }
+  }
+}

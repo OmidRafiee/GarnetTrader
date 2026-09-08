@@ -7,9 +7,9 @@ general:
   run_only_when_market_open: true
 
 market_data:
+  # این پروژه داده‌ی ساختگی ندارد؛ هر دو provider واقعی‌اند.
   # tsetmc = داده واقعی از API عمومی TSETMC (بدون نیاز به لاگین یا توکن)
   # pytse  = کتابخانه pytse-client
-  # mock   = داده مصنوعی برای تست
   provider: tsetmc
   # فقط نمادهایی که آپشن دارند. لیست به‌روز را ببینید با:
   #   python scripts/fetch_tsetmc_sample.py
@@ -20,15 +20,23 @@ market_data:
   history_days: 90
   risk_free_rate: 0.28         # نرخ بهره بدون ریسک سالانه (اعشاری)
   history_ttl_seconds: 900     # کش تاریخچه (فقط provider=tsetmc)
-  # مخصوص provider=pytse: در اجرای واقعی false بگذارید تا خطای دیتا پنهان نشود
-  # و سیگنال با قیمت mock ساخته نشود
-  allow_fallback: false
+  # پوشه‌ی تاریخچه‌ی ضبط‌شده. اگر داده شود، تاریخچه از دیسک
+  # خوانده می‌شود نه شبکه — همان چیزی که تست‌ها استفاده می‌کنند.
+  # history_dir: tests/fixtures/history
 
 option_chain:
   # tsetmc  = زنجیره واقعی از دیده‌بان بازار آپشن TSETMC (یک درخواست، کل بازار)
   # fixture = پخش یک پاسخ ضبط‌شده (تست آفلاین / بازتولید یک روز خاص)
-  # mock    = زنجیره مصنوعی
+  #
+  # چرا ایزی‌تریدر گزینه‌ی زنجیره نیست: مشخصات قرارداد را فقط تک‌به‌تک
+  # می‌دهد (~۱۳۸۶ درخواست برای کل بازار، حدود ۷ دقیقه). به‌جایش با
+  # enrich_with_broker روی همین زنجیره سوار می‌شود.
   provider: tsetmc
+
+  # غنی‌سازی با کارگزاری: وجه تضمین و اندازه‌ی دقیق قرارداد را از
+  # ایزی‌تریدر می‌گیرد. نیازمند broker.enabled و توکن معتبر.
+  enrich_with_broker: false
+  enrich_limit: 20            # چند قرارداد نزدیک به قیمت پایه غنی شود
   market: 0                    # 0=همه، 1=بورس، 2=فرابورس
   cache_ttl_seconds: 20        # کش پاسخ؛ همه نمادهای یک پاس از آن تغذیه می‌شوند
   timeout: 15
@@ -45,11 +53,6 @@ option_chain:
   # مخصوص provider=fixture
   # fixture_path: tests/fixtures/tsetmc_option_market_watch.json
 
-  # مخصوص provider=mock
-  strikes_per_side: 4          # تعداد استرایک هر طرف ATM در زنجیره mock
-  expiry_days: [21, 49, 90]    # سررسیدهای شبیه‌سازی‌شده
-  base_vol: 0.55               # نوسان پایه برای ساخت پرمیوم mock
-  spread_pct: 0.03             # اسپرد مظنه خرید/فروش
 
 signals:
   validity_minutes: 30         # مدت اعتبار هر سیگنال
@@ -57,12 +60,26 @@ signals:
   min_confidence: null         # مثلاً 0.3 برای فیلتر سیگنال‌های ضعیف
 
 risk:
+  # روشن = دارایی حساب از کارگزاری خوانده می‌شود و جای عدد زیر
+  # را می‌گیرد. عدد دستی سریع کهنه می‌شود و ریسک را روی دارایی‌ای
+  # اندازه می‌گیرد که وجود ندارد. نیاز به broker.enabled دارد.
+  use_broker_equity: false
   account_equity: 1000000000   # دارایی حساب به ریال
   risk_per_trade_pct: 1.0      # درصد ریسک در هر معامله
   max_position_pct: 5.0        # سقف درصد دارایی در یک پوزیشن
   max_contracts: 50            # سقف تعداد قرارداد در هر سیگنال
   stop_loss_pct: 35.0          # درصد افت پرمیوم برای حد ضرر پیشنهادی
   take_profit_pct: 70.0        # درصد رشد پرمیوم برای حد سود پیشنهادی
+  # کارمزد و مالیات، به‌صورت کسر (۰٫۰۰۱ = ۰٫۱٪).
+  #
+  # پیش‌فرض صفر است و حدس زده نمی‌شود — همان قاعده‌ای که برای داده‌ی
+  # بازار رعایت می‌شود. نرخ واقعی را از کارگزاری خودتان بگیرید.
+  # با صفر بودن، همه‌ی اعداد دقیقاً مثل قبل می‌مانند.
+  fees:
+    buy_rate: 0.0
+    sell_rate: 0.0
+    sell_tax_rate: 0.0   # مالیات فقط سمت فروش
+    per_order: 0.0       # کارمزد ثابت هر سفارش، اگر باشد
 
 strategies:
   directional_ma_cross:
@@ -101,6 +118,15 @@ notifiers:
     #   TELEGRAM_BOT_TOKEN و TELEGRAM_CHAT_ID
     bot_token: "<YOUR_TELEGRAM_BOT_TOKEN>"
     chat_id: "<YOUR_TELEGRAM_CHAT_ID>"
+    # دستورهای دوطرفه: /signals، /status، /report، /mute
+    # جدا از `enabled` است — کسی می‌تواند اعلان بخواهد ولی ربات
+    # دوطرفه نخواهد. فقط دستورهای همین chat_id پذیرفته می‌شود.
+    commands_enabled: false
+    mute_state_path: var/telegram_mute.json
+    # دکمه‌های «اجرا کردم / رد کردم / دیدم» زیر هر سیگنال.
+    # در گروه پرعضو خاموشش کنید: هر کسی می‌تواند بزندش.
+    ack_buttons: true
+    command_state_path: var/telegram_offset.json
 
 storage:
   enabled: true
@@ -109,13 +135,80 @@ storage:
   sqlite_path: var/signals.db
   jsonl_path: var/signals.jsonl
 
+# تقویم معاملاتی: تعطیلات را از تاریخچه‌ی **واقعی** بازار یاد می‌گیرد،
+# نه از یک جدول دستی. تعطیلات قمری (تاسوعا، عاشورا، …) هر سال جابه‌جا
+# می‌شوند و جدول دستی هر سال کهنه می‌شود؛ بازار خودش می‌داند.
+trading_calendar:
+  learn_from_market: true
+  # نماد مرجع باید پرمعامله باشد، وگرنه «نبودِ کندل» یعنی توقف نماد نه تعطیلی.
+  reference_symbol: خودرو
+  learn_days: 365
+  cache_path: var/trading_calendar.json
+  # تعطیلی اضطراریِ اعلام‌شده که هنوز در تاریخچه نیامده (YYYY-MM-DD)
+  extra_holidays: []
+
+# پایش سلامت و گزارش دوره‌ای.
+#
+# هشدار سلامت پیش‌فرض روشن است چون خرابی‌هایی را می‌گیرد که بی‌صدا
+# هستند (قطعی داده، استراتژی مرده، سکوت طولانی) و ربات در همه‌شان
+# «سالم» به نظر می‌رسد.
+# تاریخچه‌ی IV هر نماد. IV تاریخی از هیچ endpoint عمومی در دست نیست،
+# پس هر پاس خودمان ثبتش می‌کنیم تا روزی صدک معنا پیدا کند.
+#
+# تا نمونه‌ی کافی (min_samples) جمع نشود، صدک None است و استراتژی به
+# معیار قبلی (iv/realized) برمی‌گردد — پس روشن بودنش از روز اول هم
+# رفتار کسی را عوض نمی‌کند، فقط تاریخچه می‌سازد.
+iv_history:
+  enabled: true
+  path: var/iv_history.json
+  max_days: 365
+  min_samples: 20
+
+monitoring:
+  health_enabled: true
+  # گزارش دوره‌ای پیش‌فرض خاموش است: پیام دوره‌ای فرستادن باید
+  # انتخاب صریح کاربر باشد. به notifiers.telegram نیاز دارد.
+  periodic_report_enabled: false
+  # یک هشدار تا این مدت تکرار نمی‌شود (تشدید وضعیت، این را می‌شکند)
+  alert_cooldown_hours: 6.0
+  alert_state_path: var/health_alerts.json
+  report_state_path: var/report_schedule.json
+  thresholds:
+    drought_warning_days: 3
+    drought_critical_days: 7
+    # شکست «متوالی» منبع داده؛ یک تایم‌اوت گذرا هشدار نیست
+    data_warning_failures: 2
+    data_critical_failures: 5
+    strategy_error_threshold: 3
+    missing_quote_ratio: 0.8
+
 backtest:
   history_days: 180
   horizon_days: 10
   warmup_days: 30
   step_days: 1
+  # بدون تعدیل، روز افزایش سرمایه یک ریزش ساختگی است و هر استراتژی
+  # تکنیکالی آن را سیگنال نزولی قوی می‌فهمد.
+  adjust_corporate_actions: true
+  # سود و زیان روی پرمیوم **واقعی** آپشن حساب شود، نه فقط
+  # جهت نماد پایه. اهرم و تتا فقط با این دیده می‌شوند.
+  use_real_premiums: true
 
 # مایل‌استون ۱: اجرای سفارش وجود ندارد و این مقدار باید false بماند.
 # فقط یک اینترفیس انتزاعی در execution/order_executor_interface.py هست.
 execution:
   enabled: false
+
+# --- اتصال به حساب کارگزاری (فقط خواندن) ---
+# غیرفعال است مگر اینکه صریحاً روشنش کنید. حتی وقتی روشن باشد، این پروژه
+# هیچ سفارشی ثبت نمی‌کند؛ فقط پوزیشن و مشخصات قرارداد را می‌خواند.
+#
+# توکن از فایل سشنی می‌آید که 3-discover-api.bat می‌سازد.
+# ⚠️ آن فایل معادل دسترسی به حساب شماست؛ جایی نفرستیدش.
+broker:
+  enabled: false
+  provider: emofid
+  session_file: var/emofid/session.json
+  base_url: https://api-mts.orbis.easytrader.ir
+  timeout: 15
+  retries: 3

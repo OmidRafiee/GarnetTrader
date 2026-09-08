@@ -1,17 +1,19 @@
-"""اینترفیس دریافت داده نماد پایه (TSETMC / pytse-client) + کلاینت mock.
+"""اینترفیس دریافت داده نماد پایه (TSETMC / pytse-client).
 
-اگر `pytse-client` نصب نباشد یا شبکه در دسترس نباشد، `MockMarketDataClient`
-همان ساختار داده را تولید می‌کند تا بقیه سیستم بدون تغییر کار کند.
+این پروژه **داده‌ی ساختگی ندارد**. اگر منبع داده در دسترس نباشد، خطا
+بالا می‌رود؛ سیگنالی که پشتش قیمت واقعی نباشد از سیگنال نداشتن بدتر است.
 """
 
 from __future__ import annotations
 
-import math
-import random
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # فقط برای type hint؛ در زمان اجرا import نمی‌شود
+    from market.trading_calendar import TradingCalendar
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +54,10 @@ class MarketDataClient(ABC):
     #: برای برچسب‌زدن منبع داده روی هر سیگنال (mock در برابر واقعی)
     source_name: str = "unknown"
 
+    #: تقویم معاملاتی. اگر `bootstrap` یکی بسازد و اینجا بنشاند، تعطیلات
+    #: رسمی هم لحاظ می‌شوند؛ وگرنه به رفتار قدیمی (فقط آخرهفته) برمی‌گردد.
+    trading_calendar: TradingCalendar | None = None
+
     @abstractmethod
     def get_quote(self, symbol: str) -> Quote:
         """آخرین وضعیت قیمتی نماد پایه."""
@@ -61,8 +67,15 @@ class MarketDataClient(ABC):
         """تاریخچه کندل روزانه، مرتب‌شده از قدیم به جدید."""
 
     def is_market_open(self, now: datetime | None = None) -> bool:
-        """بازار تهران: شنبه تا چهارشنبه، ۰۹:۰۰ تا ۱۲:۳۰ (تقریبی، بدون تقویم تعطیلات)."""
+        """بازار تهران: شنبه تا چهارشنبه، ۰۹:۰۰ تا ۱۲:۳۰.
+
+        اگر `trading_calendar` نشانده شده باشد، تعطیلات رسمی هم اعمال
+        می‌شود؛ در غیر این صورت فقط تعطیلی هفتگی — که برای نبودِ تقویم،
+        محافظه‌کارانه‌ترین حدسِ ممکن است.
+        """
         now = now or datetime.now()
+        if self.trading_calendar is not None:
+            return self.trading_calendar.is_open(now)
         # weekday(): دوشنبه=0 ... شنبه=5، یکشنبه=6 → پنجشنبه(3) و جمعه(4) تعطیل
         if now.weekday() in (3, 4):
             return False
@@ -70,105 +83,24 @@ class MarketDataClient(ABC):
         return 9 * 60 <= minutes <= 12 * 60 + 30
 
 
-class MockMarketDataClient(MarketDataClient):
-    """تولید داده مصنوعی با گام تصادفی؛ برای تست و `--dry-run`.
-
-    با `seed` ثابت، خروجی تکرارپذیر است تا تست‌ها قطعی بمانند.
-    """
-
-    source_name = "mock"
-
-    def __init__(
-        self,
-        base_prices: dict[str, float] | None = None,
-        seed: int = 1337,
-        daily_vol: float = 0.025,
-        trend: float = 0.0012,
-    ) -> None:
-        self.base_prices = base_prices or {"خودرو": 2_500.0, "فولاد": 5_800.0}
-        self.daily_vol = daily_vol
-        self.trend = trend
-        self._rng = random.Random(seed)
-        self._history_cache: dict[str, list[Candle]] = {}
-
-    def _base_price(self, symbol: str) -> float:
-        return self.base_prices.get(symbol, 1_000.0)
-
-    def get_history(self, symbol: str, days: int = 90) -> list[Candle]:
-        cached = self._history_cache.get(symbol)
-        if cached and len(cached) >= days:
-            return cached[-days:]
-
-        price = self._base_price(symbol) * math.exp(-self.trend * days)
-        today = date.today()
-        candles: list[Candle] = []
-        for i in range(days):
-            shock = self._rng.gauss(self.trend, self.daily_vol)
-            open_price = price
-            price = max(price * math.exp(shock), 1.0)
-            high = max(open_price, price) * (1 + abs(self._rng.gauss(0, 0.004)))
-            low = min(open_price, price) * (1 - abs(self._rng.gauss(0, 0.004)))
-            candles.append(
-                Candle(
-                    date=today - timedelta(days=days - i),
-                    open=round(open_price, 1),
-                    high=round(high, 1),
-                    low=round(low, 1),
-                    close=round(price, 1),
-                    volume=float(self._rng.randint(1_000_000, 20_000_000)),
-                )
-            )
-        self._history_cache[symbol] = candles
-        return candles
-
-    def get_quote(self, symbol: str) -> Quote:
-        history = self.get_history(symbol, days=90)
-        last = history[-1]
-        return Quote(
-            symbol=symbol,
-            last_price=last.close,
-            close_price=last.close,
-            timestamp=datetime.now(),
-            bid=round(last.close * 0.998, 1),
-            ask=round(last.close * 1.002, 1),
-            volume=last.volume,
-        )
-
-
-@dataclass
 class PytseMarketDataClient(MarketDataClient):
     """پیاده‌سازی واقعی روی `pytse-client`.
 
-    نصب نبودن کتابخانه یا خطای شبکه، در صورت فعال بودن `fallback`،
-    به `MockMarketDataClient` منتقل می‌شود تا حلقه اصلی متوقف نشود.
+    خطای دیتا **بالا می‌رود**. این پروژه داده‌ی ساختگی ندارد، پس هیچ
+    fallbackی وجود ندارد که سیگنال را با قیمت مصنوعی بسازد؛ نبودِ داده
+    باید بلند و واضح باشد، نه پنهان.
     """
 
-    fallback: MarketDataClient | None = None
-    #: در اجرای واقعی این را False بگذارید تا خطای دیتا پنهان نشود
-    allow_fallback: bool = True
     _tickers: dict[str, object] = field(default_factory=dict, init=False, repr=False)
-    _fell_back: bool = field(default=False, init=False, repr=False)
-
-    def __post_init__(self) -> None:
-        self.fallback = self.fallback or MockMarketDataClient()
 
     @property
     def source_name(self) -> str:
-        """اگر یک بار به mock سقوط کرده باشیم، در نام منبع دیده می‌شود."""
-        return "pytse+mock-fallback" if self._fell_back else "pytse"
+        return "pytse"
 
     def _handle_failure(self, symbol: str, exc: Exception) -> None:
-        """خطای دیتا باید بلند باشد؛ سیگنال ساخته‌شده از داده mock خطرناک است."""
+        """خطای دیتا را بالا می‌برد؛ سکوت اینجا یعنی سیگنال بی‌پشتوانه."""
         logger.error("دریافت داده %s از pytse-client شکست خورد: %s", symbol, exc)
-        if not self.allow_fallback:
-            raise RuntimeError(
-                f"دریافت داده {symbol} شکست خورد و allow_fallback خاموش است."
-            ) from exc
-        self._fell_back = True
-        logger.error(
-            "سقوط به داده mock برای %s — سیگنال‌های این پاس با قیمت مصنوعی ساخته می‌شوند.",
-            symbol,
-        )
+        raise RuntimeError(f"دریافت داده {symbol} از pytse-client شکست خورد.") from exc
 
     def _ticker(self, symbol: str):
         if symbol in self._tickers:
@@ -189,9 +121,8 @@ class PytseMarketDataClient(MarketDataClient):
                 timestamp=datetime.now(),
                 volume=float(getattr(ticker, "value", 0.0) or 0.0),
             )
-        except Exception as exc:  # noqa: BLE001 - هر خطای شبکه/کتابخانه
-            self._handle_failure(symbol, exc)
-            return self.fallback.get_quote(symbol)
+        except Exception as exc:
+            self._handle_failure(symbol, exc)  # همیشه raise می‌کند
 
     def get_history(self, symbol: str, days: int = 90) -> list[Candle]:
         try:
@@ -207,6 +138,5 @@ class PytseMarketDataClient(MarketDataClient):
                 )
                 for row in frame.itertuples()
             ]
-        except Exception as exc:  # noqa: BLE001
-            self._handle_failure(symbol, exc)
-            return self.fallback.get_history(symbol, days)
+        except Exception as exc:
+            self._handle_failure(symbol, exc)  # همیشه raise می‌کند

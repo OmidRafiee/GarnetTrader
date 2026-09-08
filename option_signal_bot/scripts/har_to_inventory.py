@@ -24,7 +24,7 @@ from urllib.parse import parse_qsl, urlsplit
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from config import force_utf8_stdio
-from discovery.api_inventory import (  # noqa: E402
+from discovery.api_inventory import (
     SENSITIVE_HEADERS,
     ApiCall,
     ApiInventory,
@@ -50,9 +50,9 @@ def auth_header_names(headers: list[dict]) -> list[str]:
     names = []
     for header in headers:
         name = str(header.get("name", ""))
-        if name.lower() in SENSITIVE_HEADERS or looks_sensitive(name):
-            if name not in names:
-                names.append(name)
+        is_sensitive = name.lower() in SENSITIVE_HEADERS or looks_sensitive(name)
+        if is_sensitive and name not in names:
+            names.append(name)
     return sorted(names)
 
 

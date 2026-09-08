@@ -25,7 +25,7 @@ from discovery.api_inventory import (
 )
 
 # مقادیر «حساس» جعلی که نباید در هیچ خروجی ظاهر شوند
-FAKE_TOKEN = "eyJhbGciOiJIUzI1NiwidHlwIjoiSldUIn0.SUPERSECRET.signature"  # noqa: S105
+FAKE_TOKEN = "eyJhbGciOiJIUzI1NiwidHlwIjoiSldUIn0.SUPERSECRET.signature"
 FAKE_NATIONAL_ID = "0071234567"
 FAKE_BALANCE = 987654321
 FAKE_ACCOUNT = "12345678"
@@ -283,12 +283,20 @@ def _fake_har() -> dict:
                 },
                 {
                     "_resourceType": "script",
-                    "request": {"method": "GET", "url": "https://cdn.emofid.test/main.js", "headers": []},
+                    "request": {
+                        "method": "GET",
+                        "url": "https://cdn.emofid.test/main.js",
+                        "headers": [],
+                    },
                     "response": {"status": 200, "content": {"mimeType": "application/javascript"}},
                 },
                 {
                     "_resourceType": "websocket",
-                    "request": {"method": "GET", "url": "wss://push.emofid.test/hub", "headers": []},
+                    "request": {
+                        "method": "GET",
+                        "url": "wss://push.emofid.test/hub",
+                        "headers": [],
+                    },
                     "response": {"status": 101, "content": {}},
                     "_webSocketMessages": [
                         {"type": "send", "data": '{"protocol":"json","version":1}\x1e'},
@@ -327,3 +335,44 @@ def test_har_keep_static_flag():
     from scripts.har_to_inventory import build_inventory
 
     assert "main.js" in build_inventory(_fake_har(), keep_static=True).to_json()
+
+# ----------------------------------------------------------------------
+# بستن پنجره‌ی مرورگر نباید کار کاربر را دور بریزد
+# ----------------------------------------------------------------------
+def test_capture_loop_survives_a_closed_browser():
+    """بستن پنجره راه طبیعی پایان دادن است و نباید همه چیز را از بین ببرد.
+
+    باگ واقعی: `page.wait_for_timeout()` هنگام بسته شدن مرورگر
+    `TargetClosedError` می‌داد و **قبل از** بررسی `context.pages` بالا
+    می‌آمد. چون فقط `KeyboardInterrupt` گرفته می‌شد، اسکریپت کرش می‌کرد و
+    گزارش endpointها هم نوشته نمی‌شد — یعنی کل سشن لاگین کاربر هدر می‌رفت.
+
+    این تست ساختار محافظ را چک می‌کند، نه رفتار زنده را (که به مرورگر
+    واقعی نیاز دارد و در تست‌های سریع جا نمی‌شود).
+    """
+    from pathlib import Path
+
+    source = Path("scripts/emofid_login.py").read_text(encoding="utf-8")
+
+    loop_start = source.index("deadline = time.monotonic()")
+    loop_end = source.index("context.storage_state", loop_start)
+    loop_body = source[loop_start:loop_end]
+
+    assert "except KeyboardInterrupt" in loop_body
+    assert "except Exception" in loop_body, (
+        "حلقه‌ی ضبط باید بسته شدن مرورگر را هم بگیرد، نه فقط Ctrl+C"
+    )
+
+
+def test_closing_hint_warns_session_is_lost():
+    """کاربر باید بداند بستن پنجره فایل سشن را از بین می‌برد.
+
+    گزارش نجات پیدا می‌کند ولی سشن نه — Playwright برای خواندنش به
+    مرورگر زنده نیاز دارد. اگر این را نگوییم، کاربر پنجره را می‌بندد و
+    بعد نمی‌فهمد چرا `broker.enabled` کار نمی‌کند.
+    """
+    from pathlib import Path
+
+    source = Path("scripts/emofid_login.py").read_text(encoding="utf-8")
+    assert "Ctrl+C" in source
+    assert "فایل سشن از دست می‌رود" in source or "سشن از دست" in source

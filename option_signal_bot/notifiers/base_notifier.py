@@ -26,7 +26,7 @@ class BaseNotifier(ABC):
             try:
                 if self.send(signal):
                     sent += 1
-            except Exception:  # noqa: BLE001 - خرابی یک کانال، حلقه اصلی را نکشد
+            except Exception:  # خرابی یک کانال، حلقه اصلی را نکشد
                 logger.exception("ارسال سیگنال %s از کانال %s شکست خورد.", signal.symbol, self.name)
         return sent
 

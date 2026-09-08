@@ -31,35 +31,126 @@ def default_settings() -> dict[str, Any]:
             "poll_interval_seconds": 300,
             "run_only_when_market_open": False,
         },
+        # پیش‌فرض عمداً داده‌ی **واقعی** است. پروژه داده‌ی ساختگی ندارد،
+        # پس هیچ خطای تنظیماتی نمی‌تواند بی‌صدا به قیمت جعلی منجر شود.
         "market_data": {
-            "provider": "mock",
-            "symbols": ["خودرو", "فولاد"],
+            "provider": "tsetmc",
+            "symbols": ["خودرو", "شستا"],
             "history_days": 90,
             "risk_free_rate": 0.25,
         },
-        "option_chain": {"provider": "mock"},
+        "option_chain": {
+            "provider": "tsetmc",
+            # غنی‌سازی با داده‌ی کارگزاری (وجه تضمین، اندازه‌ی دقیق قرارداد).
+            # ایزی‌تریدر مشخصات را فقط تک‌به‌تک می‌دهد، پس فقط چند قرارداد
+            # نزدیک به قیمت پایه غنی می‌شوند، نه کل بازار.
+            "enrich_with_broker": False,
+            "enrich_limit": 20,
+        },
         "signals": {
             "validity_minutes": 30,
             "dedupe_window_minutes": 60,
             "min_confidence": None,
         },
-        "risk": {},
+        # `use_broker_equity` روشن = دارایی حساب از کارگزاری خوانده
+        # می‌شود، جای عدد دستیِ `account_equity` که سریع کهنه می‌شود.
+        # پیش‌فرض خاموش، تا رفتار فعلی کسی بی‌خبر عوض نشود.
+        "risk": {
+            "use_broker_equity": False,
+            # کارمزد و مالیات، به‌صورت **کسر** (۰٫۰۰۱ = ۰٫۱٪).
+            #
+            # پیش‌فرض **صفر** است و حدس زده نمی‌شود — همان قاعده‌ای
+            # که برای داده‌ی بازار رعایت می‌شود. یک نرخ حدسی، دقتِ
+            # کاذب می‌سازد که از نبودش بدتر است.
+            "fees": {
+                "buy_rate": 0.0,
+                "sell_rate": 0.0,
+                "sell_tax_rate": 0.0,
+                "per_order": 0.0,
+            },
+        },
         # خالی = همه استراتژی‌های ثبت‌شده با پارامترهای پیش‌فرض خودشان
         "strategies": {},
         "notifiers": {
             "console": {"enabled": True, "as_json": False},
-            "telegram": {"enabled": False},
+            "telegram": {
+                "enabled": False,
+                # دستورهای /signals، /status، /report، /mute.
+                # جدا از `enabled` است: کسی می‌تواند اعلان بخواهد
+                # ولی ربات دوطرفه نخواهد.
+                "commands_enabled": False,
+                "mute_state_path": "var/telegram_mute.json",
+                "command_state_path": "var/telegram_offset.json",
+            },
         },
         "storage": {
             "enabled": True,
             "sqlite_path": "var/signals.db",
             "jsonl_path": "var/signals.jsonl",
         },
+        # اتصال به حساب کارگزاری: پیش‌فرض خاموش. حتی روشن هم فقط می‌خواند.
+        "broker": {
+            "enabled": False,
+            "provider": "emofid",
+            "session_file": "var/emofid/session.json",
+            "base_url": "https://api-mts.orbis.easytrader.ir",
+            "timeout": 15,
+            "retries": 3,
+        },
+        # تقویم معاملاتی: تعطیلات را از تاریخچه‌ی **واقعی** یک نماد
+        # پرمعامله یاد می‌گیرد، نه از یک جدول دستیِ رو به کهنگی.
+        "trading_calendar": {
+            "learn_from_market": True,
+            "reference_symbol": "خودرو",
+            "learn_days": 365,
+            "cache_path": "var/trading_calendar.json",
+            # تعطیلی اضطراریِ اعلام‌شده که هنوز در تاریخچه نیامده (YYYY-MM-DD)
+            "extra_holidays": [],
+        },
+        # پایش سلامت و گزارش دوره‌ای.
+        #
+        # هشدار سلامت پیش‌فرض **روشن** است چون خرابی‌هایی را می‌گیرد که
+        # بی‌صدا هستند (قطعی داده، استراتژی مرده، سکوت طولانی) و ربات
+        # در همه‌شان «سالم» به نظر می‌رسد.
+        #
+        # گزارش دوره‌ای پیش‌فرض خاموش است: پیام دوره‌ای فرستادن باید
+        # انتخاب صریح کاربر باشد، نه اتفاقی.
+        # تاریخچه‌ی IV هر نماد: IV تاریخی از هیچ endpoint عمومی
+        # در دست نیست، پس هر پاس خودمان ثبتش می‌کنیم. تا نمونه‌ی
+        # کافی جمع نشود، صدک None است و استراتژی به معیار قبلی
+        # برمی‌گردد — پس روشن بودنش رفتار کسی را عوض نمی‌کند.
+        "iv_history": {
+            "enabled": True,
+            "path": "var/iv_history.json",
+            "max_days": 365,
+            "min_samples": 20,
+        },
+        "monitoring": {
+            "health_enabled": True,
+            "periodic_report_enabled": False,
+            "alert_cooldown_hours": 6.0,
+            "alert_state_path": "var/health_alerts.json",
+            "report_state_path": "var/report_schedule.json",
+            "thresholds": {
+                "drought_warning_days": 3,
+                "drought_critical_days": 7,
+                "data_warning_failures": 2,
+                "data_critical_failures": 5,
+                "strategy_error_threshold": 3,
+                "missing_quote_ratio": 0.8,
+            },
+        },
         "backtest": {
             "history_days": 180,
             "horizon_days": 10,
             "warmup_days": 30,
             "step_days": 1,
+            # بدون تعدیل، روز افزایش سرمایه یک ریزش ساختگی است و هر
+            # استراتژی تکنیکالی آن را سیگنال نزولی قوی می‌فهمد.
+            "adjust_corporate_actions": True,
+            # پرمیوم **واقعی** آپشن به‌جای فقط جهت‌دهی نماد پایه.
+            # خاموشش کنید اگر شبکه در دسترس نیست یا سرعت مهم‌تر است.
+            "use_real_premiums": True,
         },
         # مایل‌استون ۱: اجرای سفارش وجود ندارد و این مقدار باید false بماند.
         "execution": {"enabled": False},
@@ -86,11 +177,7 @@ class SettingsError(RuntimeError):
     """خطای تنظیمات که باید اجرا را متوقف کند، نه اینکه بی‌صدا رد شود."""
 
 
-def load_settings(
-    config_path: Path | str | None = None,
-    *,
-    require_readable: bool = True,
-) -> dict[str, Any]:
+def load_settings(config_path: Path | str | None = None) -> dict[str, Any]:
     """خواندن تنظیمات yaml و ادغام عمیق آن با پیش‌فرض‌ها."""
     defaults = default_settings()
     path = Path(config_path) if config_path else DEFAULT_CONFIG_PATH
@@ -102,20 +189,14 @@ def load_settings(
     try:
         import yaml  # وابستگی نرم
     except ImportError:
-        if not require_readable:
-            # فراخوان صریحاً داده mock خواسته (--mock / --dry-run)؛
-            # نخواندن فایل تنظیمات اینجا غافلگیرکننده نیست.
-            logger.warning("PyYAML نصب نیست؛ فایل تنظیمات نادیده گرفته شد (حالت mock).")
-            return defaults
-
-        # فایل تنظیمات **وجود دارد** ولی قابل خواندن نیست. برگرداندن پیش‌فرض‌ها
-        # یعنی بی‌صدا رفتن روی provider=mock: ربات با قیمت ساختگی سیگنال می‌دهد
-        # که از سیگنال واقعی قابل تشخیص نیست. این یک خطاست، نه یک هشدار.
+        # فایل تنظیمات **وجود دارد** ولی خوانده نمی‌شود. حالا که داده‌ی
+        # ساختگی حذف شده، خطرِ «قیمت جعلی» نیست — ولی همچنان یعنی نمادها،
+        # سقف ریسک و پارامترهای استراتژی شما نادیده گرفته می‌شوند و ربات
+        # با پیش‌فرض‌های دیگری کار می‌کند. این خطاست، نه هشدار.
         raise SettingsError(
             f"فایل تنظیمات {path} وجود دارد ولی PyYAML نصب نیست، پس خوانده نشد.\n"
-            "بدون آن، ربات بی‌صدا روی داده mock (قیمت ساختگی) کار می‌کند.\n"
-            "راه‌حل:  .venv\\Scripts\\python.exe -m pip install PyYAML\n"
-            "اگر واقعاً داده mock می‌خواهید، فایل تنظیمات را بردارید یا --mock بدهید."
+            "یعنی نمادها، سقف ریسک و پارامترهای استراتژی شما اعمال نمی‌شود.\n"
+            "راه‌حل:  .venv\\Scripts\\python.exe -m pip install PyYAML"
         ) from None
 
     with path.open("r", encoding="utf-8") as handle:
@@ -139,14 +220,25 @@ def resolve_path(value: str | Path, root: Path | None = None) -> Path:
     return path if path.is_absolute() else (root or PROJECT_ROOT) / path
 
 
-def build_dataclass(cls: type[T], values: dict[str, Any], label: str = "") -> T:
+def build_dataclass(
+    cls: type[T],
+    values: dict[str, Any],
+    label: str = "",
+    ignore: set[str] | None = None,
+) -> T:
     """ساخت یک dataclass از دیکشنری تنظیمات، با نادیده‌گرفتن کلیدهای ناشناخته.
 
     یک کلید اضافه یا غلط‌املایی در yaml نباید کل ربات را با TypeError بخواباند؛
     فقط هشدار می‌دهیم تا در لاگ دیده شود.
+
+    Args:
+        ignore: کلیدهایی که **عمداً** فیلد این dataclass نیستند ولی در همان
+            بخش yaml می‌نشینند (مثل سوئیچ‌های رفتاری). بدون این، هشدارِ
+            «کلید ناشناخته» که برای گرفتن غلط‌املایی است، روی یک کلید
+            درست هم روشن می‌شود و اعتبارش را از دست می‌دهد.
     """
     field_names = {f.name for f in dataclasses.fields(cls)}  # type: ignore[arg-type]
-    unknown = sorted(set(values or {}) - field_names)
+    unknown = sorted(set(values or {}) - field_names - (ignore or set()))
     if unknown:
         logger.warning(
             "کلیدهای ناشناخته در بخش %s نادیده گرفته شدند: %s",

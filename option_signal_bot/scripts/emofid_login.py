@@ -26,7 +26,7 @@
 from __future__ import annotations
 
 import argparse
-import json
+import contextlib
 import sys
 import time
 from pathlib import Path
@@ -34,7 +34,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from config import force_utf8_stdio
-from discovery.api_inventory import (  # noqa: E402
+from discovery.api_inventory import (
     SENSITIVE_HEADERS,
     ApiCall,
     ApiInventory,
@@ -91,7 +91,7 @@ def capture(url: str, minutes: float, session_file: Path, out_dir: Path) -> ApiI
                 return
             try:
                 headers = request.all_headers()
-            except Exception:  # noqa: BLE001 - درخواست ممکن است از بین رفته باشد
+            except Exception:
                 headers = {}
             content_type = (response.headers or {}).get("content-type", "").split(";")[0]
 
@@ -99,7 +99,7 @@ def capture(url: str, minutes: float, session_file: Path, out_dir: Path) -> ApiI
             if "json" in content_type:
                 try:
                     response_schema = sketch_json_text(response.text())
-                except Exception:  # noqa: BLE001 - بدنه ممکن است در دسترس نباشد
+                except Exception:
                     response_schema = None
 
             # بدنه‌ی درخواست ممکن است gzip یا باینری باشد؛ playwright هنگام
@@ -107,7 +107,7 @@ def capture(url: str, minutes: float, session_file: Path, out_dir: Path) -> ApiI
             # کل هندلر را می‌کشد و آن endpoint هرگز ثبت نمی‌شود.
             try:
                 request_schema = sketch_json_text(request.post_data)
-            except Exception:  # noqa: BLE001 - بدنه‌ی غیرمتنی یا از بین رفته
+            except Exception:
                 request_schema = None
 
             inventory.add_call(
@@ -146,7 +146,14 @@ def capture(url: str, minutes: float, session_file: Path, out_dir: Path) -> ApiI
         print("   • موجودی حساب")
         print("   • عمق مظنه یک نماد آپشن")
         print("=" * 68)
-        print(f"ضبط تا {minutes:.0f} دقیقه ادامه دارد. برای پایان زودتر، Ctrl+C.\n")
+        print(f"ضبط تا {minutes:.0f} دقیقه ادامه دارد.")
+        print()
+        print("⚠️ برای پایان زودتر، در همین ترمینال **Ctrl+C** بزنید —")
+        print("   نه بستن پنجره‌ی مرورگر. اگر پنجره را ببندید، گزارش")
+        print("   endpointها ذخیره می‌شود ولی **فایل سشن از دست می‌رود**")
+        print("   (Playwright برای خواندنش به مرورگر زنده نیاز دارد).")
+        print("=" * 68)
+        print()
 
         page.goto(url, wait_until="domcontentloaded")
 
@@ -158,17 +165,28 @@ def capture(url: str, minutes: float, session_file: Path, out_dir: Path) -> ApiI
                     break
         except KeyboardInterrupt:
             print("\nضبط با درخواست شما پایان یافت.")
+        except Exception as exc:
+            # بستن مرورگر `TargetClosedError` می‌دهد و **قبل از** بررسی
+            # `context.pages` بالا می‌آید. بدون این شاخه، بستن پنجره کل
+            # سشن و گزارش را از بین می‌برد — یعنی طبیعی‌ترین راه پایان
+            # دادن، همه‌ی کار کاربر را دور می‌ریخت.
+            print(f"\nمرورگر بسته شد ({type(exc).__name__})؛ آنچه ضبط شده نگه داشته می‌شود.")
 
         # ذخیره وضعیت سشن برای اجرای بعدی (حساس!)
+        # اگر مرورگر بسته شده باشد این هم شکست می‌خورد، ولی گزارش
+        # endpointها که در حافظه است باید به هر حال نوشته شود.
         try:
             context.storage_state(path=str(session_file))
             print(f"\nوضعیت سشن ذخیره شد: {session_file}")
             print("⚠️ این فایل معادل دسترسی به حساب شماست؛ آن را جایی نفرستید.")
-        except Exception as exc:  # noqa: BLE001
-            print(f"ذخیره سشن ناموفق بود: {exc}")
+        except Exception as exc:
+            print(f"\nذخیره سشن ناموفق بود: {exc}")
+            print("(احتمالاً مرورگر بسته شده. گزارش endpointها همچنان ذخیره می‌شود.)")
 
-        context.close()
-        browser.close()
+        for closer in (context.close, browser.close):
+            # مرورگر ممکن است قبلاً بسته شده باشد؛ بستنِ دوباره مهم نیست
+            with contextlib.suppress(Exception):
+                closer()
 
     return inventory
 

@@ -51,8 +51,11 @@ $("#tabs").addEventListener("click", (e) => {
   btn.classList.add("active");
   $("#panel-" + btn.dataset.tab).classList.add("active");
   if (btn.dataset.tab === "strategies") loadStrategies();
-  if (btn.dataset.tab === "symbols") loadSymbols();
+  if (btn.dataset.tab === "symbols") { loadDataSource(); loadSymbols(); }
   if (btn.dataset.tab === "risk") loadRisk();
+  if (btn.dataset.tab === "account") { loadBrokerSetup(); loadAccount(); }
+  if (btn.dataset.tab === "report") loadReport();
+  if (btn.dataset.tab === "structures") initStructures();
 });
 
 // ------------------------------------------------------------------ status
@@ -68,15 +71,22 @@ async function loadStatus() {
     else if (s.market_open === false) { mk = "بازار بسته"; mkCls = "chip-warn"; }
     box.append(el("span", "chip " + mkCls, mk));
 
-    // منبع داده — مهم‌ترین چیزی که کاربر باید ببیند
+    // منبع داده — پروژه داده ساختگی ندارد، پس همیشه واقعی است
     const src = `${s.market_data_provider}+${s.option_chain_provider}`;
-    const isMock = src.includes("mock");
-    box.append(
-      el("span", "chip " + (isMock ? "chip-warn" : "chip-ok"),
-        (isMock ? "داده ساختگی: " : "داده واقعی: ") + src)
-    );
+    box.append(el("span", "chip chip-ok", "داده واقعی: " + src));
 
     box.append(el("span", "chip chip-muted", `${fmt(s.signal_count)} سیگنال ذخیره‌شده`));
+
+    // تقویم معاملاتی: وقتی بازار بسته است، مفیدترین خبر «کِی باز می‌شود» است
+    if (s.today_jalali) {
+      box.append(el("span", "chip chip-muted", "امروز " + s.today_jalali));
+    }
+    if (s.next_trading_day) {
+      box.append(el("span", "chip chip-muted", "روز معاملاتی بعدی: " + s.next_trading_day));
+    }
+    if (s.known_holidays) {
+      box.append(el("span", "chip chip-muted", `${fmt(s.known_holidays)} تعطیلی شناخته‌شده`));
+    }
   } catch (err) {
     box.innerHTML = "";
     box.append(el("span", "chip chip-bad", "خطا: " + err.message));
@@ -121,11 +131,7 @@ function signalCard(s) {
   if (s.reason) card.append(el("div", "sig-reason", s.reason));
 
   const src = s.metadata && s.metadata.data_source;
-  if (src) {
-    const isMock = String(src).includes("mock");
-    card.append(el("div", "sig-src" + (isMock ? " is-mock" : ""),
-      "منبع داده: " + src + (isMock ? "  ← ساختگی، برای تصمیم واقعی معتبر نیست" : "")));
-  }
+  if (src) card.append(el("div", "sig-src", "منبع داده: " + src));
   return card;
 }
 
@@ -180,16 +186,16 @@ async function loadSignals() {
   }
 }
 
-async function scan(mock) {
-  const btns = [$("#btn-scan"), $("#btn-scan-mock")];
-  const btn = mock ? btns[1] : btns[0];
+async function scan() {
+  const btns = [$("#btn-scan")];
+  const btn = btns[0];
   const label = btn.textContent;
   btns.forEach((b) => (b.disabled = true));
   btn.innerHTML = '<span class="spin"></span>در حال رصد بازار…';
   $("#scan-result").innerHTML = "";
 
   try {
-    const r = await api("/api/scan?mock=" + (mock ? "true" : "false"), { method: "POST" });
+    const r = await api("/api/scan", { method: "POST" });
     $("#scan-result").append(
       el("div", "ok-box",
         r.generated
@@ -205,8 +211,7 @@ async function scan(mock) {
   }
 }
 
-$("#btn-scan").addEventListener("click", () => scan(false));
-$("#btn-scan-mock").addEventListener("click", () => scan(true));
+$("#btn-scan").addEventListener("click", () => scan());
 $("#btn-refresh").addEventListener("click", () => { loadSignals(); loadStatus(); });
 $("#filter-strategy").addEventListener("change", renderSignals);
 $("#filter-underlying").addEventListener("change", renderSignals);
@@ -455,6 +460,25 @@ async function loadRisk() {
       f.append(inp);
       box.append(f);
     });
+
+    // دارایی از کارگزاری: چک‌باکس، نه عدد — پس جدا ساخته می‌شود
+    const cb = el("div", "field");
+    const lbl = el("label");
+    const box2 = el("input");
+    box2.type = "checkbox";
+    box2.id = "risk-use-broker";
+    box2.checked = risk.use_broker_equity === true;
+    box2.dataset.original = String(box2.checked);
+    box2.addEventListener("change", () =>
+      cb.classList.toggle("changed", String(box2.checked) !== box2.dataset.original)
+    );
+    lbl.append(box2);
+    lbl.append(document.createTextNode(" دارایی حساب را از کارگزاری بخوان"));
+    cb.append(lbl);
+    cb.append(el("div", "note",
+      "عدد بالا سریع کهنه می‌شود. نیاز به فعال بودن اتصال کارگزاری دارد؛ " +
+      "اگر موجودی خوانده نشود، همان عدد بالا استفاده می‌شود."));
+    box.append(cb);
   } catch (err) {
     box.innerHTML = "";
     box.append(el("div", "error", "خطا: " + err.message));
@@ -464,9 +488,14 @@ async function loadRisk() {
 $("#btn-save-risk").addEventListener("click", async () => {
   const note = $("#risk-note");
   const patch = {};
-  document.querySelectorAll("#risk-fields input").forEach((inp) => {
+  document.querySelectorAll("#risk-fields input[type=number]").forEach((inp) => {
     if (inp.value !== inp.dataset.original) patch[inp.dataset.key] = Number(inp.value);
   });
+  // چک‌باکس باید boolean برود، نه ۰/۱ — وگرنه pydantic آن را رد می‌کند
+  const useBroker = $("#risk-use-broker");
+  if (useBroker && String(useBroker.checked) !== useBroker.dataset.original) {
+    patch.use_broker_equity = useBroker.checked;
+  }
   if (!Object.keys(patch).length) {
     note.className = "note";
     note.textContent = "تغییری نبود.";
@@ -485,6 +514,568 @@ $("#btn-save-risk").addEventListener("click", async () => {
     note.textContent = err.message;
   }
 });
+
+// ------------------------------------------------------------------ account
+// کارت موجودی. بورس تهران تسویه T+۰/T+۱/T+۲ دارد، پس «موجودی» سه عدد است.
+function balanceCard(b, useBrokerEquity) {
+  const card = el("div", "card");
+  card.append(el("h3", "", "موجودی حساب"));
+
+  const grid = el("div", "sig-grid");
+  const cell = (k, v, cls) => {
+    const dv = el("div");
+    dv.append(el("span", "k", k));
+    dv.append(el("span", "v " + (cls || ""), v));
+    return dv;
+  };
+  grid.append(cell("دارایی مبنای ریسک", fmt(b.equity), "v-gain"));
+  grid.append(cell("قدرت خرید T+۰", fmt(b.buy_power_t0)));
+  grid.append(cell("قدرت خرید T+۲", fmt(b.buy_power_t2)));
+  grid.append(cell("نقد T+۰", fmt(b.cash_t0)));
+  grid.append(cell("نقد T+۲", fmt(b.cash_t2)));
+  if (b.margin_blocked) grid.append(cell("وجه تضمین بلوکه", fmt(b.margin_blocked), "v-loss"));
+  if (b.blocked) grid.append(cell("بلوکه‌شده", fmt(b.blocked), "v-loss"));
+  if (b.credit) grid.append(cell("اعتبار", fmt(b.credit)));
+  card.append(grid);
+
+  card.append(el("div", "note", useBrokerEquity
+    ? "اندازه‌گیری ریسک روی همین عدد انجام می‌شود."
+    : "برای استفاده از این عدد در اندازه‌گیری ریسک، در تب «ریسک» گزینه‌ی " +
+      "«دارایی حساب را از کارگزاری بخوان» را روشن کنید."));
+  return card;
+}
+
+async function loadAccount() {
+  const box = $("#account");
+  box.innerHTML = '<p class="empty">در حال خواندن حساب…</p>';
+  try {
+    const d = await api("/api/account");
+    box.innerHTML = "";
+
+    if (!d.enabled) {
+      box.append(
+        el("div", "hint",
+          "اتصال به حساب کارگزاری خاموش است. برای روشن کردن، در " +
+          "config/settings.yaml مقدار broker.enabled را true بگذارید و " +
+          "با 3-discover-api.bat یک بار لاگین کنید.")
+      );
+      return;
+    }
+    if (d.reason) {
+      box.append(el("div", "error", d.reason));
+      return;
+    }
+
+    // موجودی قبل از پوزیشن‌ها می‌آید — حساب بدون پوزیشن هم موجودی دارد
+    if (d.balance) box.append(balanceCard(d.balance, d.use_broker_equity));
+
+    if (!d.positions.length) {
+      box.append(el("p", "empty", "پوزیشن باز آپشنی ندارید."));
+      return;
+    }
+
+    d.positions.forEach((p) => {
+      const card = el("div", "sig " + (p.is_long ? "call" : "put"));
+      const head = el("div", "sig-head");
+      head.append(el("span", "sig-badge " + (p.is_long ? "badge-call" : "badge-put"),
+        p.is_long ? "خرید" : "فروش"));
+      head.append(el("span", "sig-sym", p.symbol_name || p.symbol_isin));
+      if (p.cash_settlement_date) {
+        head.append(el("span", "sig-time", "تسویه نقدی: " + p.cash_settlement_date));
+      }
+      card.append(head);
+
+      const grid = el("div", "sig-grid");
+      const cell = (k, v, cls) => {
+        const dv = el("div");
+        dv.append(el("span", "k", k));
+        dv.append(el("span", "v " + (cls || ""), v));
+        return dv;
+      };
+      grid.append(cell("تعداد", fmt(p.quantity) + " قرارداد"));
+      grid.append(cell("قیمت اعمال", fmt(p.strike_price)));
+      grid.append(cell("میانگین خرید", fmt(p.buy_average_price)));
+      grid.append(cell("میانگین فروش", fmt(p.sell_average_price)));
+      grid.append(cell("وجه تضمین", fmt(p.total_margin)));
+      if (p.open_buy_quantity) grid.append(cell("سفارش خرید باز", fmt(p.open_buy_quantity)));
+      if (p.open_sell_quantity) grid.append(cell("سفارش فروش باز", fmt(p.open_sell_quantity)));
+      if (p.closed_pnl) {
+        grid.append(cell("سود/زیان بسته‌شده", fmt(p.closed_pnl),
+          p.closed_pnl >= 0 ? "v-gain" : "v-loss"));
+      }
+      card.append(grid);
+      box.append(card);
+    });
+  } catch (err) {
+    box.innerHTML = "";
+    box.append(el("div", "error", "خطا: " + err.message));
+  }
+}
+
+$("#btn-refresh-account").addEventListener("click", loadAccount);
+
+
+// ------------------------------------------------------------------ report
+const pct = (v) => (v === null || v === undefined ? "نامعلوم" : fmt(v * 100, 1) + "٪");
+const pnl = (v) =>
+  v === null || v === undefined ? "—" : (v >= 0 ? "+" : "") + fmt(v, 1) + "٪";
+
+// معیارهای حرفه‌ای. `null` اینجا یعنی «نمونه کافی نبود» — نه صفر.
+function metricsCard(m) {
+  const card = el("div", "card");
+  card.append(el("h3", "", "معیارهای عملکرد"));
+
+  const num = (v, digits = 2, suffix = "") =>
+    v === null || v === undefined ? "نامعلوم" : fmt(v, digits) + suffix;
+
+  const rows = [
+    ["انتظار ریاضی هر سیگنال", num(m.expectancy_pct, 2, "٪"),
+     "مهم‌ترین عدد: نرخ برد بالا با زیان‌های بزرگ می‌تواند انتظار منفی بدهد."],
+    ["میانه بازده", num(m.median_return_pct, 2, "٪"),
+     "برخلاف میانگین، یک سیگنال پرت آن را جابه‌جا نمی‌کند."],
+    ["میانگین برد / زیان",
+     num(m.avg_win_pct, 2, "٪") + " / " + num(m.avg_loss_pct, 2, "٪"), ""],
+    ["ضریب سود", num(m.profit_factor, 2),
+     "مجموع بردها ÷ مجموع زیان‌ها. بیشتر از ۱ یعنی سودده."],
+    ["شارپ (هر سیگنال)", num(m.sharpe_per_signal, 2),
+     "سالانه‌سازی نشده؛ با شارپ سالانه‌ی جاهای دیگر مقایسه نکنید."],
+    ["سورتینو (هر سیگنال)", num(m.sortino_per_signal, 2),
+     "فقط نوسان سمت زیان را جریمه می‌کند."],
+    ["حداکثر افت تجمعی", num(m.max_drawdown_pct, 2, "٪"),
+     "میانگین مثبت، مسیر رسیدن به آن را پنهان می‌کند."],
+    ["بلندترین زنجیره باخت", fmt(m.longest_losing_streak),
+     "چند باخت پشت‌سرهم باید تحمل می‌کردید."],
+    ["انحراف معیار", num(m.stdev_return_pct, 2, "٪"), ""],
+  ];
+
+  const table = buildTable(["معیار", "مقدار"], rows.map((r) => [r[0], r[1]]));
+  // توضیح هر معیار روی همان سطر، تا معنایش گم نشود
+  table.querySelectorAll("tbody tr").forEach((tr, i) => {
+    if (rows[i] && rows[i][2]) tr.title = rows[i][2];
+  });
+  card.append(table);
+
+  card.append(el("div", "note",
+    "این اعداد روی سود/زیان واقعیِ سیگنال‌های ارزیابی‌شده حساب شده‌اند. " +
+    "«نامعلوم» یعنی نمونه کافی نبود، نه صفر."));
+  return card;
+}
+
+async function loadReport() {
+  const box = $("#report");
+  box.innerHTML = '<p class="empty">در حال بارگذاری…</p>';
+  const win = $("#report-window").value;
+  try {
+    const d = await api("/api/report" + (win ? `?days=${win}` : ""));
+    box.innerHTML = "";
+
+    // --- خلاصه ---
+    const s = d.summary;
+    const cards = el("div", "stat-row");
+    const stat = (label, value, cls) => {
+      const c = el("div", "stat");
+      c.append(el("div", "stat-v " + (cls || ""), value));
+      c.append(el("div", "stat-k", label));
+      return c;
+    };
+    cards.append(stat("کل سیگنال", fmt(s.total)));
+    cards.append(stat("برد", fmt(s.wins), "v-gain"));
+    cards.append(stat("باخت", fmt(s.losses), "v-loss"));
+    cards.append(stat("در انتظار", fmt(s.pending)));
+    cards.append(stat("نرخ برد", pct(s.win_rate)));
+    cards.append(stat("میانگین سود", pnl(s.avg_pnl_pct),
+      s.avg_pnl_pct >= 0 ? "v-gain" : "v-loss"));
+    box.append(cards);
+
+    if (s.pending === s.total && s.total > 0) {
+      box.append(el("div", "hint",
+        "هیچ سیگنالی هنوز ارزیابی نشده. دکمه «ارزیابی» را بزنید تا قیمت " +
+        "فعلی از بازار خوانده و نتیجه ثبت شود."));
+    }
+
+    // --- معیارهای حرفه‌ای ---
+    if (d.metrics && d.metrics.total > 0) box.append(metricsCard(d.metrics));
+
+    // --- به تفکیک استراتژی ---
+    if (d.by_strategy.length) {
+      const card = el("div", "card");
+      card.append(el("h3", "", "به تفکیک استراتژی"));
+      card.append(buildTable(
+        ["استراتژی", "کل", "برد", "باخت", "در انتظار", "نرخ برد", "میانگین", "بهترین", "بدترین"],
+        d.by_strategy.map((r) => [
+          r.strategy, fmt(r.total), fmt(r.wins), fmt(r.losses), fmt(r.pending),
+          pct(r.win_rate), pnl(r.avg_pnl_pct), pnl(r.best_pnl_pct), pnl(r.worst_pnl_pct),
+        ])));
+      box.append(card);
+    }
+
+    // --- به تفکیک نماد ---
+    if (d.by_underlying.length) {
+      const card = el("div", "card");
+      card.append(el("h3", "", "به تفکیک نماد پایه"));
+      card.append(buildTable(
+        ["نماد", "کل", "برد", "باخت", "میانگین سود"],
+        d.by_underlying.map((r) => [
+          r.underlying || "—", fmt(r.total), fmt(r.wins), fmt(r.losses), pnl(r.avg_pnl_pct),
+        ])));
+      box.append(card);
+    }
+
+    // --- سیگنال‌های اخیر ---
+    if (d.recent.length) {
+      const card = el("div", "card");
+      card.append(el("h3", "", `سیگنال‌های اخیر (${d.recent.length})`));
+      card.append(buildTable(
+        ["تاریخ", "نماد", "استراتژی", "پرمیوم", "قیمت فعلی", "سود/زیان", "نتیجه"],
+        d.recent.map((r) => [
+          (r.created_at || "").slice(0, 16).replace("T", " "),
+          r.symbol, r.strategy_name, fmt(r.suggested_price),
+          r.price_at_check ? fmt(r.price_at_check) : "—",
+          pnl(r.pnl_pct), outcomeLabel(r.outcome),
+        ])));
+      box.append(card);
+    }
+  } catch (err) {
+    box.innerHTML = "";
+    box.append(el("div", "error", "خطا: " + err.message));
+  }
+}
+
+function outcomeLabel(o) {
+  return { win: "برد", loss: "باخت", pending: "در انتظار",
+           expired: "منقضی", unknown: "نامعلوم" }[o] || o;
+}
+
+function buildTable(headers, rows) {
+  const wrap = el("div", "table-wrap");
+  const t = el("table");
+  const thead = el("thead");
+  const hr = el("tr");
+  headers.forEach((h) => hr.append(el("th", "", h)));
+  thead.append(hr);
+  t.append(thead);
+  const tb = el("tbody");
+  rows.forEach((row) => {
+    const tr = el("tr");
+    row.forEach((cell) => {
+      const td = el("td", "", String(cell));
+      if (String(cell).startsWith("+")) td.className = "v-gain";
+      else if (String(cell).startsWith("-")) td.className = "v-loss";
+      tr.append(td);
+    });
+    tb.append(tr);
+  });
+  t.append(tb);
+  wrap.append(t);
+  return wrap;
+}
+
+$("#btn-refresh-report").addEventListener("click", loadReport);
+$("#report-window").addEventListener("change", () => {
+  const w = $("#report-window").value;
+  $("#btn-export").href = "/api/report/export" + (w ? `?days=${w}` : "");
+  loadReport();
+});
+
+$("#btn-evaluate").addEventListener("click", async () => {
+  const btn = $("#btn-evaluate");
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spin"></span>در حال خواندن قیمت‌ها…';
+  $("#evaluate-result").innerHTML = "";
+  try {
+    const r = await api("/api/report/evaluate", { method: "POST" });
+    $("#evaluate-result").append(el("div", "ok-box",
+      `${fmt(r.evaluated)} سیگنال ارزیابی شد` +
+      (r.skipped ? `، ${fmt(r.skipped)} رد شد (قیمت در دسترس نبود).` : ".")));
+    await loadReport();
+  } catch (err) {
+    $("#evaluate-result").append(el("div", "error", "ارزیابی ناموفق بود: " + err.message));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+  }
+});
+
+// ------------------------------------------------------------------ broker setup
+async function loadBrokerSetup() {
+  try {
+    const d = await api("/api/account");
+    $("#broker-enabled").checked = !!d.enabled;
+  } catch {
+    /* تب حساب خودش خطا را نشان می‌دهد */
+  }
+}
+
+$("#btn-save-broker").addEventListener("click", async () => {
+  const note = $("#broker-note");
+  const body = { enabled: $("#broker-enabled").checked };
+  const token = $("#broker-token").value.trim();
+  if (token) body.token = token;
+
+  note.className = "note";
+  note.textContent = "در حال ذخیره…";
+  try {
+    await api("/api/broker", { method: "PUT", body: JSON.stringify(body) });
+    note.className = "note ok";
+    note.textContent = "ذخیره شد.";
+    $("#broker-token").value = "";  // توکن در فرم نمی‌ماند
+    toast("تنظیمات کارگزاری ذخیره شد.", "ok");
+    await loadAccount();
+  } catch (err) {
+    note.className = "note bad";
+    note.textContent = err.message;
+  }
+});
+
+// ------------------------------------------------------------------ data source
+async function loadDataSource() {
+  try {
+    const d = await api("/api/datasource");
+    const fill = (sel, options, current) => {
+      sel.innerHTML = "";
+      options.forEach((o) => {
+        const opt = el("option", "", o);
+        opt.value = o;
+        sel.append(opt);
+      });
+      sel.value = current;
+    };
+    fill($("#ds-market"), d.available_market_data, d.market_data_provider);
+    fill($("#ds-chain"), d.available_option_chain, d.option_chain_provider);
+    $("#ds-enrich").checked = d.enrich_with_broker;
+    $("#ds-enrich").disabled = !d.broker_enabled;
+    $("#ds-limit").value = d.enrich_limit;
+
+    const note = $("#ds-note");
+    if (!d.broker_enabled) {
+      note.className = "note";
+      note.textContent = "برای غنی‌سازی، اول در تب «حساب» اتصال کارگزاری را فعال کنید.";
+    } else {
+      note.textContent = "";
+    }
+  } catch (err) {
+    $("#ds-note").className = "note bad";
+    $("#ds-note").textContent = err.message;
+  }
+}
+
+$("#btn-save-ds").addEventListener("click", async () => {
+  const note = $("#ds-note");
+  note.className = "note";
+  note.textContent = "در حال ذخیره…";
+  try {
+    await api("/api/datasource", {
+      method: "PUT",
+      body: JSON.stringify({
+        market_data_provider: $("#ds-market").value,
+        option_chain_provider: $("#ds-chain").value,
+        enrich_with_broker: $("#ds-enrich").checked,
+        enrich_limit: Number($("#ds-limit").value),
+      }),
+    });
+    note.className = "note ok";
+    note.textContent = "ذخیره شد؛ از پاس بعدی اعمال می‌شود.";
+    toast("منبع داده ذخیره شد.", "ok");
+    loadStatus();
+  } catch (err) {
+    note.className = "note bad";
+    note.textContent = err.message;
+  }
+});
+
+// نمایش خلاصه‌ی عمق: مهم‌ترین خبر این است که سفارش اصلاً پر می‌شود یا نه.
+function depthLabel(depth) {
+  if (!depth) return "—";
+  if (!depth.fully_fillable) {
+    return `فقط ${fmt(depth.filled_quantity)} از ${fmt(depth.available)} ⚠`;
+  }
+  const slip = depth.slippage === null || depth.slippage === undefined
+    ? "" : ` (لغزش ${fmt(depth.slippage * 100, 2)}٪)`;
+  return `${fmt(depth.available)} قرارداد${slip}`;
+}
+
+// ------------------------------------------------------------------ structures
+// از /api/structures/kinds پر می‌شود تا با اسکنرهای واقعی هم‌گام بماند.
+// فهرست دستی یعنی یک ساختار تازه بی‌صدا از UI جا می‌ماند.
+const KIND_LABEL = {};
+
+// `null` در ساختار هم‌سررسید یعنی **نامحدود** (لانگ کال)، ولی در
+// ساختار چندسررسیدی یعنی **نامعلوم**. یکی گرفتنشان گمراه‌کننده است.
+const money = (v, unknown = false) =>
+  v === null || v === undefined ? (unknown ? "نامعلوم" : "نامحدود") : fmt(v);
+
+async function initStructures() {
+  // نمادها از همان لیست تحت رصد
+  try {
+    const d = await api("/api/symbols");
+    const sel = $("#st-underlying");
+    if (!sel.options.length) {
+      (d.watched || []).forEach((s) => {
+        const o = el("option", "", s);
+        o.value = s;
+        sel.append(o);
+      });
+    }
+  } catch { /* تب خودش خطا را نشان می‌دهد */ }
+
+  // ساختارها را از سرور بگیر و هم dropdown هم برچسب‌ها را پر کن
+  try {
+    const d = await api("/api/structures/kinds");
+    const sel = $("#st-kind");
+    const kinds = d.kinds || [];
+    kinds.forEach((k) => { KIND_LABEL[k.key] = k.label; });
+
+    // فقط یک بار: گزینه‌ی «همه» می‌ماند و بقیه از سرور می‌آید
+    if (sel.options.length <= 1) {
+      kinds.forEach((k) => {
+        const o = el("option", "", k.label);
+        o.value = k.key;
+        sel.append(o);
+      });
+    }
+  } catch { /* dropdown با گزینه‌ی «همه» کار می‌کند */ }
+
+  try {
+    const d = await api("/api/structures/rank-keys");
+    const sel = $("#st-rank");
+    if (!sel.options.length) {
+      const labels = {
+        roi: "ROI", max_profit: "حداکثر سود", max_loss: "حداکثر زیان",
+        risk_reward: "ریسک/ریوارد", liquidity_score: "نقدشوندگی",
+        min_open_interest: "موقعیت باز", max_relative_spread: "اسپرد",
+        distance_to_breakeven: "فاصله تا سربه‌سر", net_credit: "اعتبار خالص",
+        required_capital: "سرمایه لازم",
+      };
+      d.keys.forEach((k) => {
+        const o = el("option", "", labels[k.key] || k.key);
+        o.value = k.key;
+        sel.append(o);
+      });
+      sel.value = "roi";
+    }
+  } catch { /* ignore */ }
+}
+
+$("#btn-scan-structures").addEventListener("click", async () => {
+  const box = $("#structures");
+  const btn = $("#btn-scan-structures");
+  const underlying = $("#st-underlying").value;
+  if (!underlying) {
+    box.innerHTML = "";
+    box.append(el("div", "error", "اول یک نماد انتخاب کنید."));
+    return;
+  }
+
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spin"></span>در حال اسکن…';
+  box.innerHTML = '<p class="empty">در حال خواندن زنجیره اختیار…</p>';
+
+  try {
+    const params = new URLSearchParams({
+      underlying,
+      kind: $("#st-kind").value,
+      rank_by: $("#st-rank").value,
+      min_open_interest: $("#st-oi").value || "50",
+      limit: "8",
+      with_depth: $("#st-depth").checked ? "true" : "false",
+    });
+    const d = await api("/api/structures?" + params);
+    box.innerHTML = "";
+
+    const head = el("div", "hint");
+    head.textContent =
+      `${d.underlying} @ ${fmt(d.spot_price)} — مرتب بر اساس ${$("#st-rank").selectedOptions[0].text}`;
+    box.append(head);
+
+    let total = 0;
+    Object.entries(d.structures).forEach(([kind, items]) => {
+      if (!items.length) return;
+      total += items.length;
+      const section = el("div", "card");
+      section.append(el("h3", "", `${KIND_LABEL[kind] || kind} (${items.length})`));
+      items.forEach((s) => section.append(structureCard(s)));
+      box.append(section);
+    });
+
+    if (!total) {
+      box.append(el("p", "empty",
+        "ساختار معتبری پیدا نشد. شاید حداقل موقعیت باز را کم کنید."));
+    }
+  } catch (err) {
+    box.innerHTML = "";
+    box.append(el("div", "error", "اسکن ناموفق بود: " + err.message));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+  }
+});
+
+function structureCard(s) {
+  const card = el("div", "sig");
+  card.style.marginTop = "10px";
+
+  const head = el("div", "sig-head");
+  head.append(el("span", "sig-sym", KIND_LABEL[s.strategy_type] || s.strategy_type));
+  if (s.expiration) head.append(el("span", "sig-strategy", "سررسید " + s.expiration));
+  if (s.has_leg_risk) {
+    const warn = el("span", "chip chip-warn", "ریسک اجرای ناقص");
+    warn.title = "کارگزاری سفارش چندپایه اتمیک ندارد؛ پایه‌ها جدا ثبت می‌شوند.";
+    head.append(warn);
+  }
+  if (s.single_expiry === false) {
+    const warn = el("span", "chip chip-warn", "سود تقریبی نیست — نامعلوم");
+    warn.title = s.approximation_note ||
+      "دو سررسید دارد؛ منحنی سود در سررسید برایش معنا ندارد.";
+    head.append(warn);
+  }
+  card.append(head);
+
+  const grid = el("div", "sig-grid");
+  const cell = (k, v, cls) => {
+    const d = el("div");
+    d.append(el("span", "k", k));
+    d.append(el("span", "v " + (cls || ""), v));
+    return d;
+  };
+  const unknown = s.single_expiry === false;
+  grid.append(cell("حداکثر سود", money(s.max_profit, unknown), "v-gain"));
+  grid.append(cell("حداکثر زیان", money(s.max_loss, unknown), "v-loss"));
+  grid.append(cell("ROI", s.roi !== null ? fmt(s.roi * 100, 1) + "٪" : "—"));
+  grid.append(cell("ریسک/ریوارد", s.risk_reward !== null ? fmt(s.risk_reward, 2) : "—"));
+  grid.append(cell("سرمایه لازم", money(s.required_capital)));
+  grid.append(cell("سربه‌سر", (s.breakevens || []).map((b) => fmt(b)).join(" — ") || "—"));
+  if (s.net_credit) grid.append(cell("اعتبار خالص", fmt(s.net_credit), "v-gain"));
+  if (s.liquidity_score !== null) {
+    grid.append(cell("نقدشوندگی", fmt(s.liquidity_score * 100, 0) + "٪"));
+  }
+  grid.append(cell("موقعیت باز", fmt(s.min_open_interest)));
+  card.append(grid);
+
+  // نقشه سفارش
+  const plan = el("div", "table-wrap");
+  plan.style.marginTop = "8px";
+  // ستون عمق فقط وقتی می‌آید که واقعاً خوانده شده باشد
+  const hasDepth = (s.legs || []).some((leg) => leg.depth);
+  const rows = (s.legs || []).map((leg) => {
+    const row = [
+      leg.action === "BUY" ? "خرید" : "فروش",
+      leg.instrument === "UNDERLYING" ? "سهم پایه" : leg.instrument,
+      leg.strike !== null && leg.strike !== undefined ? fmt(leg.strike) : "—",
+      fmt(leg.quantity),
+      fmt(leg.limit_price),
+      leg.role || "",
+    ];
+    if (hasDepth) row.push(depthLabel(leg.depth));
+    return row;
+  });
+  const headers = ["عمل", "ابزار", "استرایک", "تعداد", "قیمت حد", "نقش"];
+  if (hasDepth) headers.push("عمق / پر شدن");
+  plan.append(buildTable(headers, rows));
+  card.append(plan);
+  return card;
+}
 
 // ------------------------------------------------------------------ boot
 loadStatus();
