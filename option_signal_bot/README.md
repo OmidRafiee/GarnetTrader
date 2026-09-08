@@ -919,7 +919,7 @@ type var\emofid\api_inventory.md
 
 هر بار که خواستید یکی از این تسک‌ها انجام شود، بگویید کدام شماره را انجام دهم.
 
-- [ ] **PT-1**: به‌روزرسانی docstring و کامنت‌های `execution/order_executor_interface.py`
+- [x] **PT-1**: به‌روزرسانی docstring و کامنت‌های `execution/order_executor_interface.py`
       و README برای بازتاب اینکه `PaperBroker` پیاده‌سازی شبیه‌سازی‌شده‌ی این اینترفیس است
       (نه اتصال واقعی کارگزاری)
 - [ ] **PT-2**: ساخت `storage/paper_trading_store.py` — اسکیمای SQLite برای
