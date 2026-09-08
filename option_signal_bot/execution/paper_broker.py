@@ -41,7 +41,10 @@ class PaperBroker(OrderExecutorInterface):
 
     Args:
         store: لایه ماندگاری (`PaperTradingStore`)
-        order_book_client: هر شیء با متد `get_order_book(ins_code, symbol) -> OrderBook`
+        order_book_client: هر شیء با متد
+            `try_get_order_book(ins_code, symbol) -> OrderBook | None`
+            (مثل `data.order_book.OrderBookClient`؛ خطای شبکه را می‌بلعد و
+            `None` برمی‌گرداند تا رد سفارش، نه ۵۰۰، نتیجه‌ی آن باشد)
         resolve_contract: نگاشت نماد آپشن به `OptionContract` (برای `ins_code`
             و `contract_size`)؛ معمولاً `OptionChainClient.get_contract`
         initial_balance: موجودی اولیه حساب کاغذی (ریال)
@@ -106,7 +109,11 @@ class PaperBroker(OrderExecutorInterface):
             reason = "نماد یا ins_code یافت نشد"
             return self._rejected(order_id, symbol, side, quantity, now, reason)
 
-        book = self.order_book_client.get_order_book(contract.ins_code, symbol)
+        book = self.order_book_client.try_get_order_book(contract.ins_code, symbol)
+        if book is None:
+            reason = "دفتر سفارش در دسترس نیست (خطای شبکه یا داده)"
+            return self._rejected(order_id, symbol, side, quantity, now, reason)
+
         avg_price, filled_qty = book.fill_price(side_normalized, quantity)
         if avg_price is None or filled_qty <= 0:
             reason = "عمق کافی در دفتر سفارش نیست"
@@ -286,7 +293,11 @@ class PaperBroker(OrderExecutorInterface):
             contract = self.resolve_contract(symbol)
             if contract is None or not contract.ins_code:
                 continue
-            book: OrderBook = self.order_book_client.get_order_book(contract.ins_code, symbol)
+            book: OrderBook | None = self.order_book_client.try_get_order_book(
+                contract.ins_code, symbol
+            )
+            if book is None:
+                continue
             mark_price, _ = book.fill_price("sell", row["quantity"])
             if mark_price is None:
                 continue

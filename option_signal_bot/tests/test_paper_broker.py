@@ -33,6 +33,9 @@ class FakeOrderBookClient:
         del symbol
         return self.books[ins_code]
 
+    def try_get_order_book(self, ins_code: str, symbol: str = "") -> OrderBook | None:
+        return self.books.get(ins_code)
+
 
 def _contract(expiry_days: int = 30, last_price: float = 1000.0) -> OptionContract:
     return OptionContract(
@@ -95,6 +98,23 @@ def test_rejected_when_book_has_zero_depth(tmp_path):
 
     assert order.status == OrderStatus.REJECTED
     assert order.filled_quantity == 0
+
+
+def test_rejected_when_order_book_is_unavailable(tmp_path):
+    """خطای شبکه در گرفتن عمق باید رد سفارش بدهد، نه استثنا/۵۰۰."""
+    store = PaperTradingStore(tmp_path / "paper.db")
+    contract = _contract()
+    resolve_contract = lambda symbol: contract if symbol == SYMBOL else None  # noqa: E731
+    broker = PaperBroker(
+        store=store,
+        order_book_client=FakeOrderBookClient({}),  # ins_code هیچ‌وقت پیدا نمی‌شود
+        resolve_contract=resolve_contract,
+        initial_balance=1_000_000.0,
+    )
+    order = broker.place_order(SYMBOL, "buy", 5)
+
+    assert order.status == OrderStatus.REJECTED
+    assert "دفتر سفارش" in order.metadata["reason"]
 
 
 def test_rejected_when_symbol_unknown(tmp_path):
