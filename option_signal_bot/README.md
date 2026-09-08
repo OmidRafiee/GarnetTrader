@@ -933,7 +933,7 @@ type var\emofid\api_inventory.md
       (با استفاده از `backtest/metrics.py`)، `reset`
 - [x] **PT-5**: افزودن بخش `paper_trading` به `config/loader.py::default_settings()`
       و `config/settings.example.yaml` (پیش‌فرض خاموش، موجودی اولیه، کارمزد صفر)
-- [ ] **PT-6**: ویرایش گاردِ AST در `tests/test_signal_generator.py`
+- [x] **PT-6**: ویرایش گاردِ AST در `tests/test_signal_generator.py`
       (`test_only_execution_layer_imports_execution`) برای افزودن استثنای تک‌فایلی
       `"web/api.py"` + به‌روزرسانی docstring ماژول `web/api.py`
 - [ ] **PT-7**: افزودن endpoint های جدید در `web/api.py` زیر `/api/paper-trading/*`
