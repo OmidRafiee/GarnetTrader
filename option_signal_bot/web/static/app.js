@@ -225,7 +225,17 @@ async function renderSignalChart(box, s) {
     const insCode = s.metadata && s.metadata.ins_code;
     if (insCode) params.set("ins_code", insCode);
 
-    const d = await api("/api/chart?" + params);
+    // TSETMC گاهی کند است و این درخواست ۱۲۰ روز تاریخچه می‌خواهد.
+    // بدون مهلت، کارتِ باز برای همیشه «در حال خواندن…» می‌ماند و
+    // کاربر نمی‌داند خراب است یا فقط کند.
+    const stop = new AbortController();
+    const timer = setTimeout(() => stop.abort(), 30000);
+    let d;
+    try {
+      d = await api("/api/chart?" + params, { signal: stop.signal });
+    } finally {
+      clearTimeout(timer);
+    }
     box.innerHTML = "";
 
     const views = [];
@@ -287,7 +297,29 @@ async function renderSignalChart(box, s) {
     show(views[0]);
   } catch (err) {
     box.innerHTML = "";
-    box.append(el("div", "error", "نمودار خوانده نشد: " + err.message));
+    const aborted = err.name === "AbortError";
+    const notFound = /Not Found|خطای 404/i.test(err.message);
+    let text;
+    if (aborted) {
+      text = "خواندن نمودار طول کشید (TSETMC کند است). دوباره تلاش کنید.";
+    } else if (notFound) {
+      // این دقیقاً همان چیزی است که با سرورِ قدیمی اتفاق می‌افتد
+      text = "این نسخه‌ی داشبورد نمودار ندارد — داشبورد را ری‌استارت کنید.";
+    } else {
+      text = "نمودار خوانده نشد: " + err.message;
+    }
+    box.append(el("div", "error", text));
+
+    // اجازه‌ی تلاش دوباره: بدون این، `dataset.loaded` مانع می‌شد و
+    // کاربر باید صفحه را رفرش می‌کرد.
+    delete box.dataset.loaded;
+    const again = el("button", "chart-tab", "تلاش دوباره");
+    again.addEventListener("click", (e) => {
+      e.stopPropagation();
+      box.dataset.loaded = "1";
+      renderSignalChart(box, s);
+    });
+    box.append(again);
   }
 }
 

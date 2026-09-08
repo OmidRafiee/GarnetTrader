@@ -535,3 +535,35 @@ def test_chart_is_drawn_without_a_charting_library():
     assert "cdn" not in html.lower()
     js = (Path(web_api.STATIC_DIR) / "app.js").read_text(encoding="utf-8")
     assert "createElementNS" in js, "SVG درون‌خطی، نه کتابخانه"
+
+
+def test_chart_fetch_has_a_timeout():
+    """TSETMC گاهی کند است و این درخواست ۱۲۰ روز می‌خواهد.
+
+    بدون مهلت، کارتِ باز برای همیشه «در حال خواندن…» می‌ماند.
+    """
+    from web import api as web_api
+
+    js = (Path(web_api.STATIC_DIR) / "app.js").read_text(encoding="utf-8")
+    assert "AbortController" in js
+    assert "stop.abort()" in js
+
+
+def test_a_stale_dashboard_gets_a_useful_message():
+    """۴۰۴ روی این endpoint یعنی سرورِ قدیمی هنوز در حال اجراست.
+
+    پیام خام «Not Found» به کاربر نمی‌گوید باید ری‌استارت کند.
+    """
+    from web import api as web_api
+
+    js = (Path(web_api.STATIC_DIR) / "app.js").read_text(encoding="utf-8")
+    assert "ری‌استارت" in js
+
+
+def test_a_failed_chart_can_be_retried():
+    """بدون این، `dataset.loaded` مانع می‌شد و باید صفحه رفرش می‌شد."""
+    from web import api as web_api
+
+    js = (Path(web_api.STATIC_DIR) / "app.js").read_text(encoding="utf-8")
+    assert "delete box.dataset.loaded" in js
+    assert "تلاش دوباره" in js
