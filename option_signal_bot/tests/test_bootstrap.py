@@ -68,6 +68,23 @@ def test_default_settings_keeps_execution_disabled():
     assert default_settings()["execution"]["enabled"] is False
 
 
+def test_default_settings_keeps_paper_trading_disabled():
+    """معاملات کاغذی هم مثل بقیه‌ی سوئیچ‌های پروژه، پیش‌فرض خاموش است."""
+    defaults = default_settings()
+    assert defaults["paper_trading"]["enabled"] is False
+
+
+def test_default_settings_paper_trading_fees_are_not_guessed():
+    """کارمزد معاملات کاغذی هم از قاعده‌ی «حدس نزدن نرخ» پیروی می‌کند."""
+    fees = default_settings()["paper_trading"]["fees"]
+    assert fees == {
+        "buy_rate": 0.0,
+        "sell_rate": 0.0,
+        "sell_tax_rate": 0.0,
+        "per_order": 0.0,
+    }
+
+
 # ----------------------------------------------------------------------
 # رجیستری استراتژی‌ها
 # ----------------------------------------------------------------------

@@ -931,7 +931,7 @@ type var\emofid\api_inventory.md
 - [x] **PT-4**: افزودن متدهای کمکی روی `PaperBroker`: `unrealized_pnl`،
       `settle_expired_positions` (بستن خودکار سر سررسید واقعی)، `performance_summary`
       (با استفاده از `backtest/metrics.py`)، `reset`
-- [ ] **PT-5**: افزودن بخش `paper_trading` به `config/loader.py::default_settings()`
+- [x] **PT-5**: افزودن بخش `paper_trading` به `config/loader.py::default_settings()`
       و `config/settings.example.yaml` (پیش‌فرض خاموش، موجودی اولیه، کارمزد صفر)
 - [ ] **PT-6**: ویرایش گاردِ AST در `tests/test_signal_generator.py`
       (`test_only_execution_layer_imports_execution`) برای افزودن استثنای تک‌فایلی
