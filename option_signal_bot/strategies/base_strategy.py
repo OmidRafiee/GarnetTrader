@@ -153,6 +153,8 @@ class BaseStrategy(ABC):
                 # در metadata هم می‌ماند، برای سازگاری با مصرف‌کننده‌های
                 # قبلی (خروجی JSON و رکوردهای موجود دیتابیس).
                 "contract_size": contract.contract_size,
+                # کلیدِ خواندن تاریخچه‌ی پرمیوم همین قرارداد در بک‌تست
+                "ins_code": contract.ins_code,
                 "days_to_expiry": contract.days_to_expiry(context.today()),
                 "open_interest": contract.open_interest,
                 "data_source": context.data_source,

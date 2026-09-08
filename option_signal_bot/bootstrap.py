@@ -667,7 +667,34 @@ def build_backtester(
         step_days=config.get("step_days", 1),
         risk_free_rate=section(settings, "market_data").get("risk_free_rate", 0.25),
         adjust_corporate_actions=config.get("adjust_corporate_actions", True),
+        option_history=build_option_history(settings)
+        if config.get("use_real_premiums", True)
+        else None,
     )
+
+
+def build_option_history(settings: dict[str, Any]):
+    """منبع تاریخچه‌ی پرمیوم آپشن — برای بک‌تست روی سود و زیان **واقعی**.
+
+    شکست اینجا کشنده نیست: بدونش بک‌تست به جهت‌دهی نماد پایه برمی‌گردد،
+    که رفتار قبلی پروژه بود.
+    """
+    try:
+        from data.option_history import OptionHistoryClient
+
+        market = section(settings, "market_data")
+        return OptionHistoryClient(
+            timeout=market.get("timeout", 20),
+            retries=market.get("retries", 2),
+            history_dir=(
+                resolve_path(market["option_history_dir"])
+                if market.get("option_history_dir")
+                else None
+            ),
+        )
+    except Exception as exc:  # نبود تاریخچه نباید بک‌تست را بخواباند
+        logger.warning("تاریخچه‌ی پرمیوم در دسترس نیست: %s", exc)
+        return None
 
 
 # ----------------------------------------------------------------------

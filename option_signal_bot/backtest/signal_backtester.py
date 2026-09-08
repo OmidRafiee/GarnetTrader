@@ -1,9 +1,23 @@
 """بک‌تست **کیفیت سیگنال‌ها** روی داده تاریخی — بدون اجرای هیچ سفارشی.
 
 روش کار: استراتژی‌ها روی پنجره‌های گذشته اجرا می‌شوند، سیگنال‌ها جمع می‌شوند و
-سپس با قیمت پایه در افق ارزیابی مقایسه می‌گردند. اندازه‌گیری روی **حرکت نماد پایه**
-است، نه سود واقعی آپشن؛ برای مایل‌استون ۱ همین کافی است تا بفهمیم جهت‌دهی
-استراتژی معنادار بوده یا نه.
+سپس در افق ارزیابی سنجیده می‌گردند.
+
+**دو معیار، به ترتیب اولویت:**
+
+۱. **پرمیوم واقعی آپشن** (`use_real_premiums`، پیش‌فرض روشن) — تاریخچه‌ی
+   خودِ قرارداد از TSETMC خوانده می‌شود. این سود و زیان *واقعی* است:
+   اهرم و تتا هر دو در آن هستند.
+۲. **جهت‌دهی نماد پایه** — وقتی تاریخچه‌ی آن قرارداد در دسترس نباشد.
+   فقط می‌گوید جهت درست بود یا نه، نه اینکه چقدر سود داد.
+
+تفاوت این دو کم نیست: روی داده‌ی واقعی، اهرم بین ۲ تا ۵ برابر نوسان
+می‌کند. پس بک‌تستِ جهت‌دهی «نرخ برد» را تقریباً درست می‌گفت ولی «انتظار
+ریاضی» را نه.
+
+⚠️ **سوگیری بقا هنوز هست:** تاریخچه فقط برای قراردادهایی خوانده می‌شود
+که **امروز** در دیده‌بان بازار هستند. قراردادی که سررسید شده و رفته، در
+بک‌تست دیده نمی‌شود.
 """
 
 from __future__ import annotations
@@ -11,6 +25,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime
+from typing import Any
 
 from backtest import metrics
 from data.market_data_client import Candle, MarketDataClient, Quote
@@ -30,6 +45,12 @@ class SignalOutcome:
     exit_price: float
     horizon_days: int
 
+    #: پرمیوم **واقعی** قرارداد در ورود و خروج. `None` یعنی تاریخچه‌ی آن
+    #: قرارداد در دسترس نبود (یا آن روز معامله‌ای نشده) — که با «صفر»
+    #: فرق دارد و نباید به آن تبدیل شود.
+    entry_premium: float | None = None
+    exit_premium: float | None = None
+
     @property
     def underlying_return_pct(self) -> float:
         if self.entry_price <= 0:
@@ -42,8 +63,40 @@ class SignalOutcome:
         return self.underlying_return_pct * self._direction_sign()
 
     @property
+    def has_real_premium(self) -> bool:
+        """آیا پرمیوم واقعی برای هر دو سرِ معامله داریم؟"""
+        return bool(self.entry_premium and self.exit_premium)
+
+    @property
+    def premium_return_pct(self) -> float | None:
+        """بازده **واقعی** روی پرمیوم آپشن، نه روی قیمت پایه.
+
+        `None` یعنی تاریخچه نداشتیم. عمداً به بازده‌ی جهت‌دهی برنمی‌گردد:
+        اگر بی‌صدا جایگزین می‌شد، گزارش دو معیارِ کاملاً متفاوت را در یک
+        ستون قاطی می‌کرد و کسی نمی‌فهمید کدام عدد کدام است.
+
+        فروشنده‌ی آپشن از **افت** پرمیوم سود می‌برد، پس علامت برعکس است.
+        """
+        if not self.has_real_premium:
+            return None
+        raw = (self.exit_premium - self.entry_premium) / self.entry_premium * 100.0
+        return raw if self.signal.side is Side.BUY else -raw
+
+    @property
+    def effective_return_pct(self) -> float:
+        """بهترین عددی که داریم: پرمیوم واقعی، وگرنه جهت‌دهی پایه."""
+        premium = self.premium_return_pct
+        return premium if premium is not None else self.directional_return_pct
+
+    @property
     def is_win(self) -> bool:
-        return self.directional_return_pct > 0
+        """برد بر اساس **بهترین** داده‌ی موجود.
+
+        با پرمیوم واقعی، «برد» یعنی معامله واقعاً سود داد — نه صرفاً
+        اینکه جهت درست بود. سیگنالی که جهتش درست ولی تتا خورده باشد،
+        قبلاً برنده شمرده می‌شد.
+        """
+        return self.effective_return_pct > 0
 
     def _direction_sign(self) -> int:
         bullish = (self.signal.option_type is OptionType.CALL) == (
@@ -74,32 +127,48 @@ class BacktestReport:
     def avg_return_pct(self) -> float:
         if not self.total:
             return 0.0
-        return sum(o.directional_return_pct for o in self.outcomes) / self.total
+        return sum(o.effective_return_pct for o in self.outcomes) / self.total
 
     @property
     def best_return_pct(self) -> float:
-        return max((o.directional_return_pct for o in self.outcomes), default=0.0)
+        return max((o.effective_return_pct for o in self.outcomes), default=0.0)
 
     @property
     def worst_return_pct(self) -> float:
-        return min((o.directional_return_pct for o in self.outcomes), default=0.0)
+        return min((o.effective_return_pct for o in self.outcomes), default=0.0)
 
     # ------------------------------------------------------------------
     # معیارهای حرفه‌ای — منطق در `backtest/metrics.py` است
     #
-    # ⚠️ همه روی **بازده جهت‌دار نماد پایه** حساب می‌شوند، نه سود واقعی
-    # آپشن. اهرم لحاظ نشده، پس این اعداد کیفیت **جهت‌دهی** سیگنال را
-    # می‌سنجند، نه بازده پرتفو.
+    # روی **بهترین داده‌ی موجود** حساب می‌شوند: پرمیوم واقعی آپشن اگر
+    # داشته باشیم، وگرنه جهت‌دهی نماد پایه. `premium_coverage_pct`
+    # می‌گوید چه سهمی از سیگنال‌ها پرمیوم واقعی داشته‌اند — بدون آن
+    # معلوم نیست این اعداد چقدر واقعی‌اند.
     # ------------------------------------------------------------------
     @property
     def returns(self) -> list[float]:
-        """بازده جهت‌دار هر سیگنال (درصد)، به ترتیب **زمانی**.
+        """بازده هر سیگنال (درصد)، به ترتیب **زمانی**.
 
         ترتیب زمانی برای منحنی تجمعی و حداکثر افت حیاتی است؛ ترتیب
         ورودی تضمینی ندارد.
         """
         ordered = sorted(self.outcomes, key=lambda o: o.signal.created_at)
-        return [o.directional_return_pct for o in ordered]
+        return [o.effective_return_pct for o in ordered]
+
+    @property
+    def with_real_premium(self) -> int:
+        return sum(1 for o in self.outcomes if o.has_real_premium)
+
+    @property
+    def premium_coverage_pct(self) -> float | None:
+        """چه درصدی از سیگنال‌ها با پرمیوم **واقعی** سنجیده شدند.
+
+        `None` وقتی سیگنالی نیست. این عدد اعتبارِ بقیه‌ی گزارش را تعیین
+        می‌کند: پوشش ۲۰٪ یعنی ۸۰٪ اعداد هنوز فقط جهت‌دهی‌اند.
+        """
+        if not self.total:
+            return None
+        return round(self.with_real_premium / self.total * 100.0, 1)
 
     @property
     def median_return_pct(self) -> float | None:
@@ -218,6 +287,7 @@ class SignalBacktester:
         step_days: int = 1,
         risk_free_rate: float = 0.25,
         adjust_corporate_actions: bool = True,
+        option_history: Any | None = None,
     ) -> None:
         self.market_data = market_data
         self.option_chain = option_chain
@@ -226,6 +296,9 @@ class SignalBacktester:
         self.warmup_days = warmup_days
         self.step_days = step_days
         self.risk_free_rate = risk_free_rate
+        #: منبع تاریخچه‌ی پرمیوم. `None` یعنی بک‌تست به جهت‌دهی پایه
+        #: برمی‌گردد — همان رفتار قبلی، نه چیزی بدتر.
+        self.option_history = option_history
         self.adjust_corporate_actions = adjust_corporate_actions
 
     def run(self, symbols: list[str], days: int = 180) -> BacktestReport:
@@ -266,28 +339,63 @@ class SignalBacktester:
     # ------------------------------------------------------------------
     def _run_symbol(self, symbol: str, history: list[Candle]) -> list[SignalOutcome]:
         outcomes: list[SignalOutcome] = []
-        # زنجیره آپشن تاریخی در دسترس نیست؛ از زنجیره فعلی به‌عنوان تقریب استفاده می‌کنیم.
+        # زنجیره‌ی **تاریخی** (اینکه آن روز چه استرایک‌هایی بودند) در دسترس
+        # نیست، پس زنجیره‌ی امروز با سررسید جابه‌جاشده تقریب زده می‌شود.
+        # ولی **پرمیوم** هر قرارداد واقعی است و از تاریخچه‌ی خودش می‌آید.
         chain = self.option_chain.get_chain(symbol)
         last_index = len(history) - self.horizon_days
 
         for index in range(self.warmup_days, last_index, self.step_days):
             window = history[: index + 1]
+            entry_day = window[-1].date
             context = self._context_at(
-                symbol, window, self._chain_at(chain, window[-1].date, window[-1].close)
+                symbol, window, self._chain_at(chain, entry_day, window[-1].close)
             )
-            future_close = history[index + self.horizon_days].close
+            exit_bar = history[index + self.horizon_days]
 
             for strategy in self.strategies:
                 for signal in strategy.generate(context):
+                    entry_premium, exit_premium = self._premiums(
+                        signal, entry_day, exit_bar.date
+                    )
                     outcomes.append(
                         SignalOutcome(
                             signal=signal,
                             entry_price=context.spot,
-                            exit_price=future_close,
+                            exit_price=exit_bar.close,
                             horizon_days=self.horizon_days,
+                            entry_premium=entry_premium,
+                            exit_premium=exit_premium,
                         )
                     )
         return outcomes
+
+    def _premiums(
+        self, signal: Signal, entry_day: date, exit_day: date
+    ) -> tuple[float | None, float | None]:
+        """پرمیوم واقعی قرارداد در ورود و خروج.
+
+        `(None, None)` یعنی نداریم — و آن‌وقت `SignalOutcome` خودش به
+        جهت‌دهی برمی‌گردد. هیچ‌جا قیمتِ روزِ دیگری جایگزین نمی‌شود:
+        اگر آن روز معامله‌ای نبوده، معامله ممکن نبوده.
+        """
+        if self.option_history is None:
+            return None, None
+
+        ins_code = str(signal.metadata.get("ins_code") or "")
+        if not ins_code:
+            return None, None
+
+        bars = {
+            bar.date: bar
+            for bar in self.option_history.try_get_history(ins_code, signal.symbol)
+            if bar.traded
+        }
+        entry, exit_ = bars.get(entry_day), bars.get(exit_day)
+        return (
+            entry.reference_price if entry else None,
+            exit_.reference_price if exit_ else None,
+        )
 
     @staticmethod
     def _chain_at(chain: OptionChain, as_of: date, spot: float) -> OptionChain:
