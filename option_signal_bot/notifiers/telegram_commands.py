@@ -110,6 +110,7 @@ class TelegramCommandBot:
         mute: MuteState | None = None,
         state_path: str | Path | None = None,
         timeout: int = 10,
+        ack_store: Any | None = None,
     ) -> None:
         self.bot_token = bot_token
         self.allowed_chat_id = str(allowed_chat_id).strip()
@@ -118,6 +119,10 @@ class TelegramCommandBot:
         self.timeout = timeout
         self._state_path = Path(state_path) if state_path else None
         self._offset = self._load_offset()
+        #: محل ثبت تأیید دریافت. `None` یعنی دکمه‌ها ثبت نمی‌شوند —
+        #: ولی همچنان به تلگرام جواب داده می‌شود، وگرنه دکمه برای کاربر
+        #: تا ابد در حال چرخیدن می‌ماند.
+        self.ack_store = ack_store
 
         self.commands: dict[str, Callable[[list[str]], str]] = {
             "start": self._cmd_help,
@@ -205,6 +210,12 @@ class TelegramCommandBot:
                 # پیام غریبه حلقه را برای همیشه گیر می‌اندازد.
                 self._offset = max(self._offset, update_id + 1)
 
+            # دکمه‌های inline از راه `callback_query` می‌آیند، نه `message`
+            if update.get("callback_query"):
+                if self._handle_callback(update["callback_query"]):
+                    handled += 1
+                continue
+
             reply = self._handle_update(update)
             if reply is not None:
                 self.send_text(reply)
@@ -212,6 +223,49 @@ class TelegramCommandBot:
 
         self._save_offset()
         return handled
+
+    def _handle_callback(self, query: dict[str, Any]) -> bool:
+        """پاسخ به دکمه‌ی تأیید دریافت.
+
+        **همیشه** `answerCallbackQuery` صدا زده می‌شود، حتی وقتی تأیید را
+        رد می‌کنیم: تلگرام تا آن پاسخ نرسد، دکمه را برای کاربر در حال
+        چرخیدن نگه می‌دارد. سکوت اینجا یعنی رابط خراب به نظر می‌رسد.
+        """
+        from storage.acknowledgement import ACTION_LABELS, parse_callback
+
+        query_id = str(query.get("id") or "")
+        chat_id = str(((query.get("message") or {}).get("chat") or {}).get("id", ""))
+
+        # همان مرز امنیتیِ دستورها: توکن لو رفته نباید داده‌ی ما را بنویسد
+        if chat_id != self.allowed_chat_id:
+            logger.warning("callback از چت غیرمجاز %s نادیده گرفته شد.", chat_id)
+            self._answer_callback(query_id, "این چت مجاز نیست.")
+            return False
+
+        parsed = parse_callback(query.get("data", ""))
+        if parsed is None:
+            self._answer_callback(query_id, "دکمه‌ی ناشناخته.")
+            return False
+
+        action, signal_id = parsed
+        if self.ack_store is None:
+            self._answer_callback(query_id, "ثبت تأیید فعال نیست.")
+            return False
+
+        try:
+            self.ack_store.record(signal_id, action, source="telegram")
+        except Exception as exc:  # ثبت نشدن تأیید نباید حلقه را بخواباند
+            logger.warning("ثبت تأیید %s ناموفق بود: %s", signal_id, exc)
+            self._answer_callback(query_id, "ثبت نشد؛ دوباره تلاش کنید.")
+            return False
+
+        self._answer_callback(query_id, f"ثبت شد: {ACTION_LABELS.get(action, action)}")
+        return True
+
+    def _answer_callback(self, query_id: str, text: str) -> None:
+        """به تلگرام می‌گوید دکمه دیده شد (وگرنه تا ابد می‌چرخد)."""
+        if query_id:
+            self._call("answerCallbackQuery", {"callback_query_id": query_id, "text": text})
 
     def _handle_update(self, update: dict[str, Any]) -> str | None:
         """متن پاسخ، یا `None` اگر این پیام به ما مربوط نیست."""

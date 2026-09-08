@@ -41,6 +41,7 @@ class TelegramNotifier(BaseNotifier):
         disabled: bool = False,
         timeout: int = DEFAULT_TIMEOUT,
         mute: MuteState | None = None,
+        ack_buttons: bool = True,
     ) -> None:
         self.bot_token = bot_token
         self.chat_id = chat_id
@@ -54,15 +55,29 @@ class TelegramNotifier(BaseNotifier):
         #: نمی‌خواهد بشنود». یکی گرفتنشان باعث می‌شد `/unmute` روی کانالی
         #: که توکن ندارد هم ادعای موفقیت کند.
         self.mute = mute
+        #: دکمه‌های «اجرا کردم / رد کردم / دیدم» زیر هر سیگنال.
+        #: خاموش‌کردنی است، چون در گروه‌های پرعضو هر کسی می‌تواند بزندش.
+        self.ack_buttons = ack_buttons
 
     @property
     def muted(self) -> bool:
         return self.mute is not None and self.mute.muted
 
     def send(self, signal: Signal) -> bool:
-        return self.send_text(self.format_signal(signal))
+        """سیگنال را با دکمه‌های تأیید دریافت می‌فرستد.
 
-    def send_text(self, text: str) -> bool:
+        دکمه‌ها به **خودِ همان پیام** چسبیده‌اند، پس پاسخ کاربر بدون ابهام
+        به یک `signal_id` مشخص گره می‌خورد. جایگزینش این بود که کاربر
+        شناسه را دستی تایپ کند — که عملاً یعنی هیچ‌وقت تأیید نمی‌گیریم.
+        """
+        markup = None
+        if self.ack_buttons:
+            from storage.acknowledgement import build_keyboard
+
+            markup = build_keyboard(signal.signal_id)
+        return self.send_text(self.format_signal(signal), reply_markup=markup)
+
+    def send_text(self, text: str, reply_markup: dict | None = None) -> bool:
         if self.disabled:
             logger.info("[telegram/خاموش] %s", text.replace("\n", " | "))
             return False
@@ -71,7 +86,11 @@ class TelegramNotifier(BaseNotifier):
             # هست، پس `/signals` بعداً نشانش می‌دهد.
             logger.info("[telegram/mute] %s", text.replace("\n", " | "))
             return False
-        return self._post("sendMessage", {"chat_id": self.chat_id, "text": text})
+        payload: dict[str, object] = {"chat_id": self.chat_id, "text": text}
+        if reply_markup is not None:
+            # تلگرام این فیلد را به‌صورت JSON در بدنه‌ی form می‌خواهد
+            payload["reply_markup"] = json.dumps(reply_markup, ensure_ascii=False)
+        return self._post("sendMessage", payload)
 
     # ------------------------------------------------------------------
     def _post(self, method: str, payload: dict[str, object]) -> bool:

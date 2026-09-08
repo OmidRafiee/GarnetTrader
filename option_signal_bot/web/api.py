@@ -543,7 +543,25 @@ def get_report(days: int | None = None) -> dict[str, Any]:
             # بک‌تست هم استفاده می‌کند، تا دو عدد مختلف نگویند.
             "metrics": reporter.performance_metrics(days),
             "equity_curve": reporter.equity_curve(days),
+            # تأیید دریافت: «نرخ اجرا» در کنار «نرخ برد». سیگنالی که
+            # کاربر ندیده و ضرر داده، شکستِ استراتژی نیست.
+            "acknowledgement": _ack_stats(path, days),
         }
+
+
+def _ack_stats(db_path, days: int | None) -> dict[str, Any] | None:
+    """آمار تأیید دریافت، یا `None` اگر در دسترس نباشد.
+
+    نبودش نباید کل گزارش را بی‌نتیجه کند — بقیه‌ی اعداد مستقل‌اند.
+    """
+    try:
+        from storage.acknowledgement import AckStore
+
+        with AckStore(db_path) as store:
+            return store.stats(days)
+    except Exception as exc:  # آمار تأیید نباید گزارش را بخواباند
+        logger.warning("آمار تأیید دریافت خوانده نشد: %s", exc)
+        return None
 
 
 @app.post("/api/report/evaluate")

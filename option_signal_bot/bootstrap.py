@@ -434,7 +434,12 @@ def _build_telegram(config: dict[str, Any], _as_json: bool) -> BaseNotifier | No
     if mute is None:
         mute = MuteState(path=path)
         _MUTE_STATES[path] = mute
-    return TelegramNotifier(bot_token=token, chat_id=chat_id, mute=mute)
+    return TelegramNotifier(
+        bot_token=token,
+        chat_id=chat_id,
+        mute=mute,
+        ack_buttons=config.get("ack_buttons", True),
+    )
 
 
 #: نام کانال در تنظیمات → سازنده آن
@@ -591,7 +596,27 @@ def build_command_bot(
         state_path=resolve_path(
             config.get("command_state_path", "var/telegram_offset.json")
         ),
+        ack_store=build_ack_store(settings),
     )
+
+
+def build_ack_store(settings: dict[str, Any]):
+    """محل ثبت تأیید دریافت — روی همان دیتابیس سیگنال‌ها.
+
+    اگر ذخیره‌سازی خاموش باشد `None` برمی‌گردد: بدون جدول سیگنال، تأییدی
+    هم معنا ندارد (کلید خارجی به `signals` می‌خورد).
+    """
+    storage = section(settings, "storage")
+    if not storage.get("enabled", True):
+        return None
+
+    try:
+        from storage.acknowledgement import AckStore
+
+        return AckStore(resolve_path(storage.get("sqlite_path", "var/signals.db")))
+    except Exception as exc:  # نبود تأیید نباید ربات را بخواباند
+        logger.warning("ثبت تأیید دریافت در دسترس نیست: %s", exc)
+        return None
 
 
 def build_trading_calendar(

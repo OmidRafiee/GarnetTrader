@@ -123,6 +123,9 @@ notifiers:
     # دوطرفه نخواهد. فقط دستورهای همین chat_id پذیرفته می‌شود.
     commands_enabled: false
     mute_state_path: var/telegram_mute.json
+    # دکمه‌های «اجرا کردم / رد کردم / دیدم» زیر هر سیگنال.
+    # در گروه پرعضو خاموشش کنید: هر کسی می‌تواند بزندش.
+    ack_buttons: true
     command_state_path: var/telegram_offset.json
 
 storage:
