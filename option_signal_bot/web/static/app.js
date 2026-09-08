@@ -56,6 +56,7 @@ $("#tabs").addEventListener("click", (e) => {
   if (btn.dataset.tab === "account") { loadBrokerSetup(); loadAccount(); }
   if (btn.dataset.tab === "report") loadReport();
   if (btn.dataset.tab === "structures") initStructures();
+  if (btn.dataset.tab === "paper") loadPaperTab();
 });
 
 // ------------------------------------------------------------------ status
@@ -115,6 +116,17 @@ async function loadStatus() {
 
 // ------------------------------------------------------------------ signals
 let allSignals = [];
+//: کش سطح صفحه؛ دکمه‌ی «اجرا با یک کلیک» فقط وقتی معاملات کاغذی روشن است دیده می‌شود
+let paperTradingEnabled = false;
+
+async function refreshPaperTradingFlag() {
+  try {
+    const d = await api("/api/paper-trading/settings");
+    paperTradingEnabled = !!d.enabled;
+  } catch {
+    paperTradingEnabled = false;
+  }
+}
 
 function signalCard(s) {
   const isCall = s.option_type === "call";
@@ -152,6 +164,14 @@ function signalCard(s) {
 
   const src = s.metadata && s.metadata.data_source;
   if (src) card.append(el("div", "sig-src", "منبع داده: " + src));
+
+  if (paperTradingEnabled) {
+    const actions = el("div", "card-actions");
+    const btn = el("button", "btn btn-ghost", "اجرای این سیگنال (کاغذی)");
+    btn.addEventListener("click", () => executeSignalAsPaperOrder(s, btn));
+    actions.append(btn);
+    card.append(actions);
+  }
 
   return card;
 }
@@ -1181,7 +1201,226 @@ function structureCard(s) {
   return card;
 }
 
+// ------------------------------------------------------------------ paper trading
+async function loadPaperSettings() {
+  const d = await api("/api/paper-trading/settings");
+  $("#paper-enabled").checked = !!d.enabled;
+  $("#paper-initial-balance").value = d.initial_balance ?? "";
+  const fees = d.fees || {};
+  $("#paper-fee-buy").value = fees.buy_rate ?? 0;
+  $("#paper-fee-sell").value = fees.sell_rate ?? 0;
+  $("#paper-fee-tax").value = fees.sell_tax_rate ?? 0;
+  $("#paper-fee-per-order").value = fees.per_order ?? 0;
+}
+
+$("#btn-save-paper-settings").addEventListener("click", async () => {
+  const note = $("#paper-settings-note");
+  note.className = "note";
+  note.textContent = "در حال ذخیره…";
+  try {
+    await api("/api/paper-trading/settings", {
+      method: "PUT",
+      body: JSON.stringify({
+        enabled: $("#paper-enabled").checked,
+        initial_balance: Number($("#paper-initial-balance").value),
+        fees: {
+          buy_rate: Number($("#paper-fee-buy").value),
+          sell_rate: Number($("#paper-fee-sell").value),
+          sell_tax_rate: Number($("#paper-fee-tax").value),
+          per_order: Number($("#paper-fee-per-order").value),
+        },
+      }),
+    });
+    note.className = "note ok";
+    note.textContent = "ذخیره شد.";
+    toast("تنظیمات معاملات کاغذی ذخیره شد.", "ok");
+    await refreshPaperTradingFlag();
+    renderSignals();
+    await loadPaperTab();
+  } catch (err) {
+    note.className = "note bad";
+    note.textContent = err.message;
+  }
+});
+
+$("#btn-paper-reset").addEventListener("click", async () => {
+  if (!confirm("حساب کاغذی کاملاً ریست شود؟ همه‌ی پوزیشن‌ها و تاریخچه پاک می‌شود.")) return;
+  try {
+    await api("/api/paper-trading/reset", { method: "POST" });
+    toast("حساب کاغذی ریست شد.", "ok");
+    await loadPaperTab();
+  } catch (err) {
+    toast("ریست ناموفق بود: " + err.message, "bad");
+  }
+});
+
+function paperStatRow(a) {
+  const row = el("div", "stat-row");
+  const stat = (label, value, cls) => {
+    const c = el("div", "stat");
+    c.append(el("div", "stat-v " + (cls || ""), value));
+    c.append(el("div", "stat-k", label));
+    return c;
+  };
+  row.append(stat("نقد", fmt(a.cash)));
+  row.append(stat("موجودی اولیه", fmt(a.initial_balance)));
+  row.append(stat("سود/زیان شناور", pnl(a.unrealized_pnl / (a.initial_balance || 1) * 100),
+    a.unrealized_pnl >= 0 ? "v-gain" : "v-loss"));
+  row.append(stat("ارزش کل حساب", fmt(a.equity), a.equity >= a.initial_balance ? "v-gain" : "v-loss"));
+  return row;
+}
+
+async function loadPaperAccount() {
+  const box = $("#paper-account");
+  box.innerHTML = '<p class="empty">در حال بارگذاری…</p>';
+  try {
+    const a = await api("/api/paper-trading/account");
+    box.innerHTML = "";
+    box.append(paperStatRow(a));
+  } catch (err) {
+    box.innerHTML = "";
+    box.append(el("div", "error", "خطا: " + err.message));
+  }
+}
+
+async function loadPaperPositions() {
+  const box = $("#paper-positions");
+  box.innerHTML = '<p class="empty">در حال بارگذاری…</p>';
+  try {
+    const d = await api("/api/paper-trading/positions");
+    box.innerHTML = "";
+    if (!d.positions.length) {
+      box.append(el("p", "empty", "پوزیشن باز کاغذی ندارید."));
+      return;
+    }
+    const rows = d.positions.map((p) => [
+      p.symbol, fmt(p.quantity), fmt(p.average_price), fmt(p.mark_price), pnl(p.pnl_pct), "",
+    ]);
+    const table = buildTable(
+      ["نماد", "تعداد", "میانگین خرید", "قیمت لحظه‌ای", "سود/زیان", ""], rows
+    );
+    table.querySelectorAll("tbody tr").forEach((tr, i) => {
+      const btn = el("button", "btn btn-ghost", "بستن پوزیشن");
+      const position = d.positions[i];
+      btn.addEventListener("click", () => closePaperPosition(position, btn));
+      const lastCell = tr.lastElementChild;
+      lastCell.textContent = "";
+      lastCell.append(btn);
+    });
+    box.append(table);
+  } catch (err) {
+    box.innerHTML = "";
+    box.append(el("div", "error", "خطا: " + err.message));
+  }
+}
+
+async function closePaperPosition(position, btn) {
+  btn.disabled = true;
+  try {
+    await api("/api/paper-trading/orders", {
+      method: "POST",
+      body: JSON.stringify({
+        symbol: position.symbol,
+        side: "sell",
+        quantity: position.quantity,
+      }),
+    });
+    toast(`پوزیشن ${position.symbol} بسته شد.`, "ok");
+    await loadPaperTab();
+  } catch (err) {
+    toast("بستن پوزیشن ناموفق بود: " + err.message, "bad");
+    btn.disabled = false;
+  }
+}
+
+async function loadPaperOrders() {
+  const box = $("#paper-orders");
+  box.innerHTML = '<p class="empty">در حال بارگذاری…</p>';
+  try {
+    const d = await api("/api/paper-trading/orders");
+    box.innerHTML = "";
+    if (!d.orders.length) {
+      box.append(el("p", "empty", "هنوز سفارش کاغذی ثبت نشده."));
+      return;
+    }
+    const rows = d.orders.map((o) => [
+      o.created_at ? new Date(o.created_at).toLocaleString("fa-IR") : "",
+      o.symbol,
+      o.side === "buy" ? "خرید" : "فروش",
+      fmt(o.quantity),
+      fmt(o.filled_quantity),
+      fmt(o.avg_fill_price),
+      o.status,
+    ]);
+    box.append(buildTable(
+      ["زمان", "نماد", "سمت", "تعداد", "پرشده", "قیمت پرشدن", "وضعیت"], rows
+    ));
+  } catch (err) {
+    box.innerHTML = "";
+    box.append(el("div", "error", "خطا: " + err.message));
+  }
+}
+
+$("#btn-refresh-paper-orders").addEventListener("click", loadPaperOrders);
+
+$("#btn-paper-order").addEventListener("click", async () => {
+  const note = $("#paper-order-note");
+  const symbol = $("#paper-order-symbol").value.trim();
+  const side = $("#paper-order-side").value;
+  const quantity = Number($("#paper-order-qty").value);
+
+  if (!symbol || !quantity) {
+    note.className = "note bad";
+    note.textContent = "نماد و تعداد را وارد کنید.";
+    return;
+  }
+
+  note.className = "note";
+  note.textContent = "در حال ثبت سفارش…";
+  try {
+    const order = await api("/api/paper-trading/orders", {
+      method: "POST",
+      body: JSON.stringify({ symbol, side, quantity }),
+    });
+    note.className = order.status === "rejected" ? "note bad" : "note ok";
+    note.textContent = order.status === "rejected"
+      ? "رد شد: " + (order.metadata && order.metadata.reason)
+      : `سفارش ${order.status === "filled" ? "کامل" : "بخشی"} پر شد @ ${fmt(order.price)}`;
+    await loadPaperTab();
+  } catch (err) {
+    note.className = "note bad";
+    note.textContent = err.message;
+  }
+});
+
+async function executeSignalAsPaperOrder(signal, btn) {
+  btn.disabled = true;
+  const label = btn.textContent;
+  btn.textContent = "در حال ثبت…";
+  try {
+    const order = await api("/api/paper-trading/orders", {
+      method: "POST",
+      body: JSON.stringify({ signal_id: signal.signal_id, quantity: signal.suggested_qty }),
+    });
+    if (order.status === "rejected") {
+      toast("رد شد: " + (order.metadata && order.metadata.reason), "bad");
+    } else {
+      toast(`سیگنال با یک کلیک اجرا شد @ ${fmt(order.price)}`, "ok");
+    }
+  } catch (err) {
+    toast("اجرای سیگنال ناموفق بود: " + err.message, "bad");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+  }
+}
+
+async function loadPaperTab() {
+  await loadPaperSettings();
+  await Promise.all([loadPaperAccount(), loadPaperPositions(), loadPaperOrders()]);
+}
+
 // ------------------------------------------------------------------ boot
 loadStatus();
-loadSignals();
+refreshPaperTradingFlag().then(loadSignals);
 setInterval(loadStatus, 60000);

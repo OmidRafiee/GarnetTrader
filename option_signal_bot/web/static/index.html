@@ -32,6 +32,7 @@
   <button class="tab" data-tab="risk">ریسک</button>
   <button class="tab" data-tab="structures">ساختارها</button>
   <button class="tab" data-tab="report">گزارش</button>
+  <button class="tab" data-tab="paper">معاملات کاغذی</button>
   <button class="tab" data-tab="account">حساب</button>
 </nav>
 
@@ -190,6 +191,92 @@
     </div>
     <div id="evaluate-result"></div>
     <div id="report"><p class="empty">در حال بارگذاری…</p></div>
+  </section>
+
+  <!-- ================= معاملات کاغذی ================= -->
+  <section class="panel" id="panel-paper">
+    <p class="hint">
+      کارگزار <strong>شبیه‌سازی‌شده</strong> — بدون هیچ اتصال واقعی به کارگزاری.
+      پرشدن سفارش از عمق واقعی دفتر سفارش TSETMC حساب می‌شود، نه از آخرین قیمت.
+      فقط پوزیشن long (فروش استقراضی پشتیبانی نمی‌شود).
+    </p>
+    <div class="card card-narrow" id="paper-setup">
+      <h3>تنظیمات</h3>
+      <div class="field" style="margin-bottom:11px">
+        <label>
+          <input type="checkbox" id="paper-enabled" style="width:auto;margin-inline-end:6px">
+          فعال باشد
+        </label>
+      </div>
+      <div class="params">
+        <div class="field">
+          <label>موجودی اولیه (ریال)</label>
+          <input type="number" id="paper-initial-balance" min="1" step="1000000">
+        </div>
+        <div class="field">
+          <label>کارمزد خرید</label>
+          <input type="number" id="paper-fee-buy" min="0" max="1" step="0.0001">
+        </div>
+        <div class="field">
+          <label>کارمزد فروش</label>
+          <input type="number" id="paper-fee-sell" min="0" max="1" step="0.0001">
+        </div>
+        <div class="field">
+          <label>مالیات فروش</label>
+          <input type="number" id="paper-fee-tax" min="0" max="1" step="0.0001">
+        </div>
+        <div class="field">
+          <label>کارمزد ثابت هر سفارش</label>
+          <input type="number" id="paper-fee-per-order" min="0" step="1000">
+        </div>
+      </div>
+      <span class="dflt">
+        کارمزد پیش‌فرض صفر است. نرخ واقعی کارگزاری خودتان را وارد کنید تا
+        سود/زیان شبیه‌سازی‌شده واقعی‌تر باشد.
+      </span>
+      <div class="card-actions">
+        <button class="btn btn-primary" id="btn-save-paper-settings">ذخیره</button>
+        <button class="btn btn-ghost" id="btn-paper-reset">ریست حساب</button>
+        <span class="note" id="paper-settings-note"></span>
+      </div>
+    </div>
+
+    <div id="paper-account"><p class="empty">در حال بارگذاری…</p></div>
+
+    <div class="card">
+      <h3>ثبت سفارش دستی</h3>
+      <div class="params">
+        <div class="field">
+          <label>نماد آپشن</label>
+          <input type="text" id="paper-order-symbol" placeholder="مثلاً ضخود7001">
+        </div>
+        <div class="field">
+          <label>سمت</label>
+          <select id="paper-order-side">
+            <option value="buy">خرید (باز کردن)</option>
+            <option value="sell">فروش (بستن)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>تعداد</label>
+          <input type="number" id="paper-order-qty" min="1" step="1" value="1">
+        </div>
+      </div>
+      <div class="card-actions">
+        <button class="btn btn-primary" id="btn-paper-order">ثبت سفارش</button>
+        <span class="note" id="paper-order-note"></span>
+      </div>
+    </div>
+
+    <h3 style="margin-top:22px">پوزیشن‌های باز</h3>
+    <div id="paper-positions"><p class="empty">در حال بارگذاری…</p></div>
+
+    <div class="toolbar" style="margin-top:22px">
+      <h3 style="margin:0">تاریخچه سفارش‌ها</h3>
+      <span class="spacer"></span>
+      <button class="btn btn-ghost" id="btn-refresh-paper-orders">بازخوانی</button>
+    </div>
+    <div id="paper-orders"><p class="empty">در حال بارگذاری…</p></div>
   </section>
 
   <!-- ================= حساب ================= -->

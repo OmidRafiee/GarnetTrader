@@ -938,7 +938,7 @@ type var\emofid\api_inventory.md
       `"web/api.py"` + به‌روزرسانی docstring ماژول `web/api.py`
 - [x] **PT-7**: افزودن endpoint های جدید در `web/api.py` زیر `/api/paper-trading/*`
       (settings، orders، positions، account، report، reset) + اجرای سیگنال با یک کلیک
-- [ ] **PT-8**: افزودن تب و پنل «معاملات کاغذی» در `web/static/index.html` و `app.js`
+- [x] **PT-8**: افزودن تب و پنل «معاملات کاغذی» در `web/static/index.html` و `app.js`
       (فرم سفارش، جدول پوزیشن‌های باز، تاریخچه، دکمه ریست، دکمه اجرای سیگنال)
 - [ ] **PT-9**: نوشتن `tests/test_paper_broker.py` و `tests/test_paper_trading_store.py`
       + افزودن تست‌های جدید به `tests/test_web_api.py` و `tests/test_bootstrap.py`
