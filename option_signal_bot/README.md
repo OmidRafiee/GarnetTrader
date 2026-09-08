@@ -922,7 +922,7 @@ type var\emofid\api_inventory.md
 - [x] **PT-1**: به‌روزرسانی docstring و کامنت‌های `execution/order_executor_interface.py`
       و README برای بازتاب اینکه `PaperBroker` پیاده‌سازی شبیه‌سازی‌شده‌ی این اینترفیس است
       (نه اتصال واقعی کارگزاری)
-- [ ] **PT-2**: ساخت `storage/paper_trading_store.py` — اسکیمای SQLite برای
+- [x] **PT-2**: ساخت `storage/paper_trading_store.py` — اسکیمای SQLite برای
       `paper_account` / `paper_orders` / `paper_positions` / `paper_trades`
       با همان الگوی `storage/signal_log.py`
 - [ ] **PT-3**: ساخت `execution/paper_broker.py` — کلاس `PaperBroker(OrderExecutorInterface)`
