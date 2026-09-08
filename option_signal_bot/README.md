@@ -925,10 +925,10 @@ type var\emofid\api_inventory.md
 - [x] **PT-2**: ساخت `storage/paper_trading_store.py` — اسکیمای SQLite برای
       `paper_account` / `paper_orders` / `paper_positions` / `paper_trades`
       با همان الگوی `storage/signal_log.py`
-- [ ] **PT-3**: ساخت `execution/paper_broker.py` — کلاس `PaperBroker(OrderExecutorInterface)`
+- [x] **PT-3**: ساخت `execution/paper_broker.py` — کلاس `PaperBroker(OrderExecutorInterface)`
       با fill فوری بر پایه‌ی order book واقعی (`data/order_book.py`)، میانگین‌گیری وزنی
       پوزیشن، کارمزد (با شکل `risk.fees`)، و P&L
-- [ ] **PT-4**: افزودن متدهای کمکی روی `PaperBroker`: `unrealized_pnl`،
+- [x] **PT-4**: افزودن متدهای کمکی روی `PaperBroker`: `unrealized_pnl`،
       `settle_expired_positions` (بستن خودکار سر سررسید واقعی)، `performance_summary`
       (با استفاده از `backtest/metrics.py`)، `reset`
 - [ ] **PT-5**: افزودن بخش `paper_trading` به `config/loader.py::default_settings()`
