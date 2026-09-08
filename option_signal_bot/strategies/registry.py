@@ -78,6 +78,17 @@ def create_strategies(config: dict[str, Any] | None) -> list[BaseStrategy]:
             continue
         strategies.append(create_strategy(name, entry.get("params")))
 
+    # ⚠️ این بخش یک **فهرست سفید** است: استراتژیِ ثبت‌شده‌ای که در yaml
+    # نیامده باشد، بی‌صدا ساخته نمی‌شود. دو روز تمام فقط یک استراتژی
+    # سیگنال می‌داد و دلیلش همین بود — بدون هیچ خطا یا هشداری.
+    forgotten = [n for n in available_strategies() if n not in (config or {})]
+    if forgotten:
+        logger.warning(
+            "این استراتژی‌ها ثبت شده‌اند ولی در تنظیمات نیستند، پس اجرا "
+            "**نمی‌شوند**: %s. برای فعال‌کردن، به بخش strategies اضافه‌شان کنید.",
+            ", ".join(forgotten),
+        )
+
     if not strategies:
         logger.warning("هیچ استراتژی فعالی وجود ندارد؛ سیگنالی تولید نمی‌شود.")
     return strategies

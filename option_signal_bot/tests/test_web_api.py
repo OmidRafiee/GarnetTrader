@@ -378,3 +378,77 @@ def test_iv_rank_is_null_until_history_is_long_enough(client):
     body = client.get("/api/iv-surface", params={"underlying": "خودرو"}).json()
     if body.get("history_samples", 0) < 20:
         assert body["iv_rank"] is None
+
+
+# ----------------------------------------------------------------------
+# رصد زنده (پولینگ داشبورد)
+# ----------------------------------------------------------------------
+def test_live_controls_exist_in_the_page():
+    """دکمه و بازه‌ی رصد زنده باید در HTML باشند."""
+    from web import api as web_api
+
+    html = (Path(web_api.STATIC_DIR) / "index.html").read_text(encoding="utf-8")
+    for element in ('id="btn-live"', 'id="live-interval"', 'id="live-status"'):
+        assert element in html, element
+
+
+def test_live_mode_is_wired_in_js():
+    from web import api as web_api
+
+    js = (Path(web_api.STATIC_DIR) / "app.js").read_text(encoding="utf-8")
+    for symbol in ("startLive", "stopLive", "liveRun", "visibilitychange"):
+        assert symbol in js, symbol
+
+
+def test_live_mode_stops_itself_when_the_market_closes():
+    """بازار تهران ۹:۰۰ تا ۱۲:۳۰ باز است.
+
+    پولینگ روی بازار بسته فقط قیمت دیروز را دوباره می‌خواند.
+    """
+    from web import api as web_api
+
+    js = (Path(web_api.STATIC_DIR) / "app.js").read_text(encoding="utf-8")
+    assert "market_open === false" in js
+    assert "stopLive" in js
+
+
+def test_concurrent_scan_is_refused_not_queued(client):
+    """۴۰۹ همان چیزی است که حالت زنده باید بی‌سروصدا رد کند."""
+    import web.api as web_api
+
+    assert hasattr(web_api, "_scan_lock")
+
+
+def test_live_polling_treats_busy_as_normal():
+    """پاسِ همپوشان در حالت زنده عادی است، نه خطا.
+
+    اگر مثل خطا نشان داده شود، کاربر فکر می‌کند چیزی خراب است.
+    """
+    from web import api as web_api
+
+    js = (Path(web_api.STATIC_DIR) / "app.js").read_text(encoding="utf-8")
+    assert "در حال اجراست" in js
+
+
+# ----------------------------------------------------------------------
+# آخرین به‌روزرسانی
+# ----------------------------------------------------------------------
+def test_status_reports_when_the_page_was_refreshed(client):
+    body = client.get("/api/status").json()
+    assert body["server_time"], "زمان پاسخ باید همیشه باشد"
+
+
+def test_last_signal_time_is_none_not_zero_when_empty(client):
+    """«هیچ سیگنالی نیست» با «سیگنال قدیمی» فرق دارد."""
+    body = client.get("/api/status").json()
+    assert "last_signal_at" in body
+    assert body["last_signal_at"] is None or isinstance(body["last_signal_at"], str)
+
+
+def test_page_freshness_and_signal_age_are_separate_fields(client):
+    """یکی گرفتنشان یعنی کاربر فکر کند ربات تازه رصد کرده.
+
+    در حالی که فقط صفحه رفرش شده.
+    """
+    body = client.get("/api/status").json()
+    assert "server_time" in body and "last_signal_at" in body

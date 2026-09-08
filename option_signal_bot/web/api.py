@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -888,7 +888,26 @@ def get_status() -> dict[str, Any]:
         "today_jalali": today_jalali,
         "next_trading_day": next_trading_day,
         "known_holidays": known_holidays,
+        # زمان **همین پاسخ**، نه زمان آخرین پاس رصد. کاربر با این
+        # می‌فهمد صفحه تازه است یا مانده.
+        "server_time": datetime.now().isoformat(timespec="seconds"),
+        # زمان آخرین سیگنالِ ثبت‌شده — یعنی «آخرین باری که ربات واقعاً
+        # چیزی پیدا کرد». `None` یعنی هنوز هیچ سیگنالی نیست.
+        "last_signal_at": _last_signal_at(settings),
     }
+
+
+def _last_signal_at(settings: dict[str, Any]) -> str | None:
+    """زمان جدیدترین سیگنال ذخیره‌شده، یا `None` اگر هیچ نباشد."""
+    try:
+        with _signal_log(settings) as log:
+            signals = log.all_signals(limit=None)
+        if not signals:
+            return None
+        return max(s.created_at for s in signals).isoformat(timespec="seconds")
+    except Exception as exc:  # نبود این عدد نباید نوار وضعیت را بخواباند
+        logger.warning("زمان آخرین سیگنال خوانده نشد: %s", exc)
+        return None
 
 
 # ----------------------------------------------------------------------

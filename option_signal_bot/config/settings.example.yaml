@@ -82,6 +82,9 @@ risk:
     per_order: 0.0       # کارمزد ثابت هر سفارش، اگر باشد
 
 strategies:
+  # ⚠️ این بخش یک **فهرست سفید** است: هر استراتژی که اینجا نباشد اصلاً
+  # ساخته نمی‌شود. قبلاً فقط دو تا اینجا بودند و collar/long_straddle
+  # بی‌صدا اجرا نمی‌شدند — بدون هیچ خطا یا هشداری.
   directional_ma_cross:
     enabled: true
     params:
@@ -98,7 +101,10 @@ strategies:
     enabled: true
     params:
       trend_window: 20
-      range_threshold_pct: 3.0
+      # ⚠️ ۳٪ برای بورس تهران یعنی «هرگز»: انحراف واقعی از MA20 روی
+      # نمادهای پرمعامله ۱۰-۱۵٪ اندازه‌گیری شد. با ۳٪ این استراتژی دو
+      # روز تمام یک سیگنال هم نداد.
+      range_threshold_pct: 12.0
       rich_iv_ratio: 1.30
       cheap_iv_ratio: 0.80
       covered_call_moneyness: 0.08
@@ -107,6 +113,30 @@ strategies:
       min_open_interest: 50
       enable_covered_call: true
       enable_straddle: true
+  # ساختار سه‌پایه: سهم + خرید پوت (کف) + فروش کال (سقف).
+  # نیازمند داشتن سهم پایه است.
+  collar:
+    enabled: true
+    params:
+      protection_pct: 0.10     # کف حفاظت، ۱۰٪ زیر قیمت
+      cap_pct: 0.10            # سقف سود، ۱۰٪ بالای قیمت
+      max_net_cost_pct: 0.02   # حداکثر هزینه خالص
+      min_days_to_expiry: 21
+      max_days_to_expiry: 90
+      min_open_interest: 50
+      max_relative_spread: 0.30
+  # خرید همزمان کال و پوت هم‌استرایک — وقتی IV نسبت به نوسان
+  # تاریخی ارزان است و انتظار حرکت بزرگ (در هر دو جهت) داریم.
+  long_straddle:
+    enabled: true
+    params:
+      max_iv_to_rv_ratio: 0.95
+      rv_window: 30
+      max_moneyness_gap: 0.03
+      min_days_to_expiry: 21
+      max_days_to_expiry: 90
+      min_open_interest: 50
+      max_relative_spread: 0.25
 
 notifiers:
   console:
