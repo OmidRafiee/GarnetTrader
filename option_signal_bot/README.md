@@ -940,9 +940,9 @@ type var\emofid\api_inventory.md
       (settings، orders، positions، account، report، reset) + اجرای سیگنال با یک کلیک
 - [x] **PT-8**: افزودن تب و پنل «معاملات کاغذی» در `web/static/index.html` و `app.js`
       (فرم سفارش، جدول پوزیشن‌های باز، تاریخچه، دکمه ریست، دکمه اجرای سیگنال)
-- [ ] **PT-9**: نوشتن `tests/test_paper_broker.py` و `tests/test_paper_trading_store.py`
+- [x] **PT-9**: نوشتن `tests/test_paper_broker.py` و `tests/test_paper_trading_store.py`
       + افزودن تست‌های جدید به `tests/test_web_api.py` و `tests/test_bootstrap.py`
-- [ ] **PT-10**: اجرای کامل `pytest`، تست دستی در داشبورد (ثبت سفارش، بستن پوزیشن،
+- [x] **PT-10**: اجرای کامل `pytest`، تست دستی در داشبورد (ثبت سفارش، بستن پوزیشن،
       ریست حساب، اجرای سیگنال با یک کلیک) و بررسی نهایی diff قبل از merge
 
 ### بدهی فنی شناخته‌شده
