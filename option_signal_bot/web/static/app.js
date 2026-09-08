@@ -186,30 +186,113 @@ async function loadSignals() {
   }
 }
 
-async function scan() {
-  const btns = [$("#btn-scan")];
-  const btn = btns[0];
-  const label = btn.textContent;
-  btns.forEach((b) => (b.disabled = true));
+async function scan(quiet = false) {
+  const btn = $("#btn-scan");
+  const label = btn.dataset.label || btn.textContent;
+  btn.dataset.label = label;
+  btn.disabled = true;
   btn.innerHTML = '<span class="spin"></span>در حال رصد بازار…';
-  $("#scan-result").innerHTML = "";
+  if (!quiet) $("#scan-result").innerHTML = "";
 
   try {
     const r = await api("/api/scan", { method: "POST" });
+    const when = new Date().toLocaleTimeString("fa-IR");
+    $("#scan-result").innerHTML = "";
     $("#scan-result").append(
-      el("div", "ok-box",
-        r.generated
+      el("div", r.generated ? "ok-box" : "hint",
+        (r.generated
           ? `پاس رصد تمام شد: ${fmt(r.generated)} سیگنال تولید شد.`
-          : "پاس رصد تمام شد؛ شرایط هیچ استراتژی برقرار نبود.")
+          : "پاس رصد تمام شد؛ شرایط هیچ استراتژی برقرار نبود.") +
+        (quiet ? `  (${when})` : ""))
     );
     await Promise.all([loadSignals(), loadStatus()]);
+    return r.generated || 0;
   } catch (err) {
-    $("#scan-result").append(el("div", "error", "پاس رصد ناموفق بود: " + err.message));
+    // ۴۰۹ یعنی پاس قبلی هنوز تمام نشده — در حالت زنده کاملاً عادی است
+    // و نباید مثل خطا دیده شود، وگرنه کاربر فکر می‌کند چیزی خراب است.
+    const busy = /در حال اجراست/.test(err.message);
+    if (!(quiet && busy)) {
+      $("#scan-result").innerHTML = "";
+      $("#scan-result").append(
+        el("div", "error", "پاس رصد ناموفق بود: " + err.message));
+    }
+    return 0;
   } finally {
-    btns.forEach((b) => (b.disabled = false));
+    btn.disabled = false;
     btn.textContent = label;
   }
 }
+
+// ------------------------------------------------------------------ live
+// رصد زنده = پولینگ خودکار. بازار تهران فقط ۹:۰۰ تا ۱۲:۳۰ باز است، پس
+// وقتی بسته باشد پولینگ **خودش می‌ایستد**: زدنِ پاس روی بازار بسته فقط
+// همان قیمت‌های دیروز را دوباره می‌خواند و باتری/شبکه را هدر می‌دهد.
+let liveTimer = null;
+let liveTick = 0;
+
+function liveOn() {
+  return liveTimer !== null;
+}
+
+function setLiveStatus(text, cls = "") {
+  const node = $("#live-status");
+  node.className = "note " + cls;
+  node.textContent = text;
+}
+
+async function liveRun() {
+  liveTick += 1;
+  const found = await scan(true);
+
+  // اگر بازار بسته شد، خودمان متوقف می‌شویم
+  try {
+    const st = await api("/api/status");
+    if (st.market_open === false) {
+      stopLive("بازار بسته است؛ رصد زنده متوقف شد." +
+        (st.next_trading_day ? ` روز معاملاتی بعدی: ${st.next_trading_day}` : ""));
+      return;
+    }
+  } catch {
+    /* وضعیت نامعلوم — ادامه می‌دهیم، توقف بی‌دلیل بدتر است */
+  }
+
+  if (liveOn()) {
+    setLiveStatus(
+      `رصد زنده روشن — پاس ${fmt(liveTick)}` +
+      (found ? ` · ${fmt(found)} سیگنال تازه` : ""),
+      "ok");
+  }
+}
+
+function startLive() {
+  if (liveOn()) return;
+  const seconds = Number($("#live-interval").value) || 60;
+  liveTick = 0;
+  liveTimer = setInterval(liveRun, seconds * 1000);
+  $("#btn-live").textContent = "■ توقف رصد";
+  $("#btn-live").classList.add("btn-primary");
+  $("#live-interval").disabled = true;
+  setLiveStatus("رصد زنده روشن شد…", "ok");
+  liveRun();   // بلافاصله یک بار، نه بعد از N ثانیه انتظار
+}
+
+function stopLive(message = "رصد زنده متوقف شد.") {
+  if (liveTimer !== null) clearInterval(liveTimer);
+  liveTimer = null;
+  $("#btn-live").textContent = "▶ رصد زنده";
+  $("#btn-live").classList.remove("btn-primary");
+  $("#live-interval").disabled = false;
+  setLiveStatus(message);
+}
+
+$("#btn-live").addEventListener("click", () => (liveOn() ? stopLive() : startLive()));
+
+// تبِ بسته نباید بی‌صدا پولینگ کند؛ کاربر فکر می‌کند خاموش است.
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden && liveOn()) {
+    stopLive("تب پنهان شد؛ رصد زنده متوقف شد.");
+  }
+});
 
 $("#btn-scan").addEventListener("click", () => scan());
 $("#btn-refresh").addEventListener("click", () => { loadSignals(); loadStatus(); });

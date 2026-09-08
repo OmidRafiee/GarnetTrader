@@ -40,6 +40,19 @@
   <section class="panel active" id="panel-signals">
     <div class="toolbar">
       <button class="btn btn-primary" id="btn-scan">اجرای پاس رصد بازار</button>
+      <button class="btn" id="btn-live" title="هر چند ثانیه یک‌بار خودکار رصد می‌کند">
+        ▶ رصد زنده
+      </button>
+      <label class="note" id="live-interval-wrap">
+        هر
+        <select id="live-interval">
+          <option value="30">۳۰ ثانیه</option>
+          <option value="60" selected>۱ دقیقه</option>
+          <option value="120">۲ دقیقه</option>
+          <option value="300">۵ دقیقه</option>
+        </select>
+      </label>
+      <span class="note" id="live-status"></span>
       <span class="spacer"></span>
       <select id="filter-strategy"><option value="">همه استراتژی‌ها</option></select>
       <select id="filter-underlying"><option value="">همه نمادها</option></select>

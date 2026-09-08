@@ -428,3 +428,48 @@ def test_use_broker_equity_is_not_an_unknown_key_warning(settings, caplog):
     with caplog.at_level("WARNING"):
         bootstrap.build_risk_calculator(settings)
     assert "use_broker_equity" not in caplog.text
+
+
+# ----------------------------------------------------------------------
+# استراتژی جامانده از تنظیمات
+# ----------------------------------------------------------------------
+def test_a_registered_strategy_missing_from_config_warns(caplog):
+    """این دقیقاً همان چیزی است که دو روز سیگنال را خورد.
+
+    بخش `strategies` یک فهرست سفید است؛ استراتژیِ نیامده بی‌صدا ساخته
+    نمی‌شود. سکوت اینجا یعنی کاربر هیچ‌وقت نمی‌فهمد چرا فقط یک
+    استراتژی سیگنال می‌دهد.
+    """
+    from strategies.registry import available_strategies, create_strategies
+
+    with caplog.at_level("WARNING"):
+        built = create_strategies({"directional_ma_cross": {"enabled": True}})
+
+    assert [s.name for s in built] == ["directional_ma_cross"]
+    for name in available_strategies():
+        if name != "directional_ma_cross":
+            assert name in caplog.text, name
+
+
+def test_a_complete_config_warns_about_nothing(caplog):
+    from strategies.registry import available_strategies, create_strategies
+
+    complete = {name: {"enabled": True} for name in available_strategies()}
+    with caplog.at_level("WARNING"):
+        built = create_strategies(complete)
+
+    assert len(built) == len(available_strategies())
+    assert "نیستند" not in caplog.text
+
+
+def test_shipped_config_enables_every_strategy():
+    """تنظیمات نمونه نباید هیچ استراتژی‌ای را جا بگذارد."""
+    import yaml
+
+    from config.loader import EXAMPLE_CONFIG_PATH
+    from strategies.registry import available_strategies
+
+    data = yaml.safe_load(EXAMPLE_CONFIG_PATH.read_text(encoding="utf-8"))
+    configured = set(data.get("strategies") or {})
+    missing = set(available_strategies()) - configured
+    assert not missing, f"در settings.example.yaml نیستند: {sorted(missing)}"

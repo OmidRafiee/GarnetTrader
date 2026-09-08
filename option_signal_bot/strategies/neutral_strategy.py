@@ -55,8 +55,13 @@ class NeutralStrategy(BaseStrategy):
     def default_params(cls) -> dict[str, Any]:
         return {
             "trend_window": 20,
-            # حداکثر انحراف قیمت از میانگین که «رنج» تلقی می‌شود (درصد)
-            "range_threshold_pct": 3.0,
+            # حداکثر انحراف قیمت از میانگین که «رنج» تلقی می‌شود (درصد).
+            #
+            # ⚠️ ۳٪ (مقدار قبلی) برای بورس تهران عملاً یعنی «هرگز»: روی
+            # نمادهای پرمعامله انحراف از MA20 معمولاً ۱۰ تا ۱۵٪ است، پس
+            # Covered Call دو روز تمام یک سیگنال هم نداد بدون اینکه
+            # خطایی دیده شود. ۱۲٪ از اندازه‌گیری واقعی بازار آمده.
+            "range_threshold_pct": 12.0,
             # IV باید چند برابر نوسان تاریخی باشد تا «گران» حساب شود
             "rich_iv_ratio": 1.30,
             # و چند برابر تا «ارزان» حساب شود
@@ -245,9 +250,30 @@ class NeutralStrategy(BaseStrategy):
         ]
 
     def _is_range_bound(self, context: StrategyContext) -> bool:
-        """قیمت نسبت به میانگین متحرک، از آستانه بیشتر فاصله نگرفته باشد."""
+        """قیمت نسبت به میانگین متحرک، از آستانه بیشتر فاصله نگرفته باشد.
+
+        ⚠️ **آستانه باید با نوسان واقعی بازار تنظیم شود.** مقدار اولیه‌ی
+        ۳٪ برای بورس تهران بیش از حد سخت‌گیر بود: در یک روند معمولی،
+        انحراف از MA20 روی نمادهای پرمعامله ۱۰ تا ۱۵٪ اندازه‌گیری شد، پس
+        این گیت **هیچ‌وقت** باز نمی‌شد و Covered Call عملاً مرده بود —
+        بدون اینکه خطایی دیده شود.
+
+        اگر این عدد را پایین بگذارید، همان اتفاق دوباره می‌افتد و از لاگ
+        هم پیدا نیست؛ به همین دلیل وقتی گیت جلوی سیگنال را می‌گیرد،
+        دلیلش لاگ می‌شود.
+        """
         mean = sma(context.closes, self.params["trend_window"])
         if not mean:
             return False
         deviation_pct = abs(context.spot - mean) / mean * 100.0
-        return deviation_pct <= self.params["range_threshold_pct"]
+        threshold = self.params["range_threshold_pct"]
+        if deviation_pct > threshold:
+            logger.debug(
+                "%s رنج نیست: انحراف %.1f٪ از MA%d، آستانه %.1f٪.",
+                context.underlying,
+                deviation_pct,
+                self.params["trend_window"],
+                threshold,
+            )
+            return False
+        return True
