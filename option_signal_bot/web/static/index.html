@@ -247,8 +247,14 @@
       <h3>ثبت سفارش دستی</h3>
       <div class="params">
         <div class="field">
-          <label>نماد آپشن</label>
-          <input type="text" id="paper-order-symbol" placeholder="مثلاً ضخود7001">
+          <label>نماد پایه</label>
+          <select id="paper-order-underlying"></select>
+        </div>
+        <div class="field">
+          <label>زنجیره اختیار</label>
+          <select id="paper-order-symbol">
+            <option value="">— اول نماد پایه را انتخاب کنید —</option>
+          </select>
         </div>
         <div class="field">
           <label>سمت</label>

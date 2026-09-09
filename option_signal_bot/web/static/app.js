@@ -1363,15 +1363,64 @@ async function loadPaperOrders() {
 
 $("#btn-refresh-paper-orders").addEventListener("click", loadPaperOrders);
 
+// ------------------------------------------------------------------ paper order form: underlying + chain
+async function loadPaperOrderUnderlyings() {
+  const sel = $("#paper-order-underlying");
+  if (sel.options.length) return;  // فقط یک‌بار پر می‌شود
+  try {
+    const d = await api("/api/symbols");
+    (d.watched || []).forEach((s) => {
+      const o = el("option", "", s);
+      o.value = s;
+      sel.append(o);
+    });
+  } catch { /* دراپ‌داون خالی می‌ماند؛ کاربر پیام خطای زنجیره را می‌بیند */ }
+}
+
+const OPTION_TYPE_LABEL = { call: "کال", put: "پوت" };
+
+async function loadPaperOrderChain() {
+  const underlying = $("#paper-order-underlying").value;
+  const symbolSel = $("#paper-order-symbol");
+  symbolSel.innerHTML = "";
+
+  if (!underlying) {
+    symbolSel.append(el("option", "", "— اول نماد پایه را انتخاب کنید —"));
+    return;
+  }
+
+  symbolSel.append(el("option", "", "در حال بارگذاری…"));
+  try {
+    const d = await api("/api/paper-trading/chain?underlying=" + encodeURIComponent(underlying));
+    symbolSel.innerHTML = "";
+    if (!d.contracts.length) {
+      symbolSel.append(el("option", "", "زنجیره‌ای یافت نشد"));
+      return;
+    }
+    d.contracts.forEach((c) => {
+      const label = `${c.symbol} — ${OPTION_TYPE_LABEL[c.option_type] || c.option_type} ` +
+        `${fmt(c.strike)} (${c.expiry})`;
+      const o = el("option", "", label);
+      o.value = c.symbol;
+      symbolSel.append(o);
+    });
+  } catch (err) {
+    symbolSel.innerHTML = "";
+    symbolSel.append(el("option", "", "خطا: " + err.message));
+  }
+}
+
+$("#paper-order-underlying").addEventListener("change", loadPaperOrderChain);
+
 $("#btn-paper-order").addEventListener("click", async () => {
   const note = $("#paper-order-note");
-  const symbol = $("#paper-order-symbol").value.trim();
+  const symbol = $("#paper-order-symbol").value;
   const side = $("#paper-order-side").value;
   const quantity = Number($("#paper-order-qty").value);
 
   if (!symbol || !quantity) {
     note.className = "note bad";
-    note.textContent = "نماد و تعداد را وارد کنید.";
+    note.textContent = "نماد پایه، زنجیره اختیار و تعداد را انتخاب کنید.";
     return;
   }
 
@@ -1417,7 +1466,12 @@ async function executeSignalAsPaperOrder(signal, btn) {
 
 async function loadPaperTab() {
   await loadPaperSettings();
-  await Promise.all([loadPaperAccount(), loadPaperPositions(), loadPaperOrders()]);
+  await Promise.all([
+    loadPaperAccount(),
+    loadPaperPositions(),
+    loadPaperOrders(),
+    loadPaperOrderUnderlyings(),
+  ]);
 }
 
 // ------------------------------------------------------------------ boot

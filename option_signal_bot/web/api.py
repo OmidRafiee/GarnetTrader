@@ -954,6 +954,45 @@ def update_paper_trading_settings(update: PaperTradingUpdate) -> dict[str, Any]:
     return {"ok": True, "applied": patch}
 
 
+@app.get("/api/paper-trading/chain")
+async def get_paper_trading_chain(underlying: str) -> dict[str, Any]:
+    """زنجیره‌ی اختیار **واقعی** یک نماد پایه — برای پرکردن dropdown نماد آپشن.
+
+    فرم سفارش دستی به‌جای تایپ آزاد نماد، اول نماد پایه را از کاربر
+    می‌گیرد و بعد این لیست را برای انتخاب دقیق قرارداد نشان می‌دهد.
+    """
+    settings = _settings()
+
+    def _work() -> dict[str, Any]:
+        context = create_app(settings, dry_run=True, as_json=False)
+        try:
+            chain = context.option_chain.get_chain(underlying)
+        finally:
+            context.close()
+        return {
+            "underlying": underlying,
+            "spot_price": chain.spot_price,
+            "contracts": [
+                {
+                    "symbol": c.symbol,
+                    "option_type": c.option_type,
+                    "strike": c.strike,
+                    "expiry": c.expiry.isoformat(),
+                }
+                for c in sorted(chain.contracts, key=lambda c: (c.expiry, c.strike, c.option_type))
+            ],
+        }
+
+    try:
+        return await asyncio.to_thread(_work)
+    except ValueError as exc:
+        # نماد پایه نامعتبر — خطای کاربر، نه خرابی سرور
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("خواندن زنجیره اختیار ناموفق بود.")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 @app.post("/api/paper-trading/orders")
 async def place_paper_order(request: PaperOrderRequest) -> dict[str, Any]:
     """ثبت یک سفارش کاغذی — فوری، در برابر عمق واقعی دفتر سفارش.

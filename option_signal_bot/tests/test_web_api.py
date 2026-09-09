@@ -277,6 +277,21 @@ def test_paper_trading_is_disabled_by_default(client):
     assert body["enabled"] is False
 
 
+def test_paper_trading_chain_lists_real_contracts_for_underlying(client):
+    """dropdown زنجیره اختیار فرم سفارش دستی، از همین endpoint پر می‌شود."""
+    body = client.get("/api/paper-trading/chain?underlying=خودرو").json()
+    assert body["contracts"]
+    for contract in body["contracts"]:
+        assert contract["symbol"]
+        assert contract["option_type"] in ("call", "put")
+
+
+def test_paper_trading_chain_for_unknown_underlying_is_a_client_error(client):
+    """نماد پایه‌ی نامعتبر باید ۴۰۰ بدهد، نه ۵۰۰ یا لیست خالیِ گمراه‌کننده."""
+    response = client.get("/api/paper-trading/chain?underlying=نامعتبر")
+    assert response.status_code == 400
+
+
 def test_paper_order_rejected_while_disabled(client, paper_order_book):
     response = client.post(
         "/api/paper-trading/orders",
