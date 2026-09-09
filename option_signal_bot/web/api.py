@@ -2,8 +2,12 @@
 
 مرزهای این ماژول عمداً تنگ است:
 
-* **هیچ سفارشی ثبت نمی‌شود.** این ماژول `execution` را import نمی‌کند و تست
-  گارد سراسری موجود در پروژه آن را تضمین می‌کند.
+* **هیچ سفارش واقعی ثبت نمی‌شود.** این ماژول به کارگزاری واقعی وصل نمی‌شود.
+  تنها استثنای صریح: endpoint های `/api/paper-trading/*` که `PaperBroker`
+  (کارگزار **شبیه‌سازی‌شده**، بدون اتصال واقعی) را از `execution/` صدا
+  می‌زنند — با تصمیم صریح کاربر. این ماژول تنها فایل خارج از `execution/`
+  است که تست گارد سراسری پروژه اجازه‌ی import کردن `execution` را به آن
+  می‌دهد؛ هیچ فایل دیگری این اجازه را ندارد.
 * نوشتن فقط روی `config/settings.yaml` است، نه چیز دیگر.
 * پاس رصد بازار از همان `run_cycle` در `main.py` می‌آید، نه یک نسخه‌ی موازی؛
   تا داشبورد و ترمینال هرگز دو روایت مختلف از یک پاس نگویند.
@@ -68,6 +72,70 @@ def _signal_log(settings: dict[str, Any]) -> SignalLog:
         db_path=resolve_path(storage.get("sqlite_path", "var/signals.db")),
         jsonl_path=resolve_path(storage.get("jsonl_path", "var/signals.jsonl")),
     )
+
+
+def _paper_broker(settings: dict[str, Any]):
+    """می‌سازد `PaperBroker` را با اجزای واقعی (عمق مظنه، زنجیره آپشن).
+
+    این تنها جای مجاز import کردن `execution` خارج از خودِ آن پوشه است
+    (تصمیم صریح کاربر، تست گارد `test_only_execution_layer_imports_execution`
+    همین یک فایل را استثنا کرده).
+    """
+    from data.option_chain_client import OptionChainClient
+    from data.order_book import OrderBookClient
+    from execution.paper_broker import PaperBroker
+    from risk.fees import FeeSchedule
+    from storage.paper_trading_store import PaperTradingStore
+
+    config = section(settings, "paper_trading")
+    store = PaperTradingStore(resolve_path(config.get("sqlite_path", "var/paper_trading.db")))
+    order_book_client = OrderBookClient(
+        ttl_seconds=config.get("order_book_ttl_seconds", 10.0)
+    )
+    fee_config = config.get("fees") or {}
+    fees = FeeSchedule(
+        buy_rate=fee_config.get("buy_rate", 0.0),
+        sell_rate=fee_config.get("sell_rate", 0.0),
+        sell_tax_rate=fee_config.get("sell_tax_rate", 0.0),
+        per_order=fee_config.get("per_order", 0.0),
+    )
+
+    context = create_app(settings, dry_run=True, as_json=False)
+    option_chain: OptionChainClient = context.option_chain
+
+    def resolve_contract(symbol: str):
+        return option_chain.get_contract(symbol)
+
+    return PaperBroker(
+        store=store,
+        order_book_client=order_book_client,
+        resolve_contract=resolve_contract,
+        initial_balance=config.get("initial_balance", 0.0),
+        fees=fees,
+    ), context
+
+
+def _require_paper_trading_enabled(settings: dict[str, Any]) -> None:
+    if not section(settings, "paper_trading").get("enabled"):
+        raise HTTPException(
+            status_code=400,
+            detail="معاملات کاغذی خاموش است. از تب «معاملات کاغذی» فعالش کنید.",
+        )
+
+
+def _serialize_order(order: Any) -> dict[str, Any]:
+    return {
+        "order_id": order.order_id,
+        "symbol": order.symbol,
+        "side": order.side,
+        "quantity": order.quantity,
+        "filled_quantity": order.filled_quantity,
+        "price": order.price,
+        "status": order.status.value,
+        "remaining_quantity": order.remaining_quantity,
+        "metadata": order.metadata,
+        "created_at": order.created_at.isoformat(timespec="seconds"),
+    }
 
 
 def _signal_dict(signal: Signal) -> dict[str, Any]:
@@ -651,6 +719,21 @@ class BrokerUpdate(BaseModel):
     session_file: str | None = None
 
 
+class PaperTradingUpdate(BaseModel):
+    enabled: bool | None = None
+    initial_balance: float | None = None
+    fees: dict[str, float] | None = None
+
+
+class PaperOrderRequest(BaseModel):
+    #: نماد دستی؛ اگر `signal_id` داده شده باشد نادیده گرفته می‌شود
+    symbol: str | None = None
+    #: اجرای یک سیگنال موجود با یک کلیک؛ symbol/side از خودِ سیگنال می‌آید
+    signal_id: str | None = None
+    side: str | None = None
+    quantity: int | None = None
+
+
 @app.get("/api/datasource")
 def get_datasource() -> dict[str, Any]:
     """منبع داده‌ی فعلی و گزینه‌های موجود."""
@@ -843,6 +926,172 @@ def get_account() -> dict[str, Any]:
             for p in positions
         ],
     }
+
+
+@app.get("/api/paper-trading/settings")
+def get_paper_trading_settings() -> dict[str, Any]:
+    """تنظیمات فعلی معاملات کاغذی."""
+    return section(_settings(), "paper_trading")
+
+
+@app.put("/api/paper-trading/settings")
+def update_paper_trading_settings(update: PaperTradingUpdate) -> dict[str, Any]:
+    """ویرایش تنظیمات معاملات کاغذی از پنل."""
+    patch: dict[str, Any] = {}
+    if update.enabled is not None:
+        patch["enabled"] = update.enabled
+    if update.initial_balance is not None:
+        if update.initial_balance <= 0:
+            raise HTTPException(status_code=400, detail="موجودی اولیه باید مثبت باشد.")
+        patch["initial_balance"] = update.initial_balance
+    if update.fees is not None:
+        patch["fees"] = update.fees
+
+    if not patch:
+        raise HTTPException(status_code=400, detail="هیچ مقداری برای تغییر داده نشد.")
+
+    _patch_settings({"paper_trading": patch})
+    return {"ok": True, "applied": patch}
+
+
+@app.post("/api/paper-trading/orders")
+async def place_paper_order(request: PaperOrderRequest) -> dict[str, Any]:
+    """ثبت یک سفارش کاغذی — فوری، در برابر عمق واقعی دفتر سفارش.
+
+    یا `symbol`+`side` مستقیم داده می‌شود، یا `signal_id` یک سیگنال
+    موجود را اجرا می‌کند («اجرای این سیگنال» با یک کلیک) — نماد، سمت و
+    تعداد پیشنهادی از خودِ سیگنال خوانده می‌شود، ولی قیمتِ پرشدن همیشه
+    از عمق **زنده** دفتر سفارش است، نه از `suggested_price` سیگنال.
+    """
+    settings = _settings()
+    _require_paper_trading_enabled(settings)
+
+    symbol = request.symbol
+    side = request.side
+    quantity = request.quantity
+    signal_id = request.signal_id
+
+    if signal_id:
+        with _signal_log(settings) as log:
+            match = next((s for s in log.all_signals(limit=None) if s.signal_id == signal_id), None)
+        if match is None:
+            raise HTTPException(status_code=404, detail=f"سیگنال {signal_id} یافت نشد.")
+        symbol = match.symbol
+        side = match.side.value
+        if quantity is None:
+            quantity = match.suggested_qty
+    elif not symbol or not side:
+        raise HTTPException(
+            status_code=400, detail="یا symbol+side یا signal_id باید داده شود."
+        )
+
+    if quantity is None or quantity <= 0:
+        raise HTTPException(status_code=400, detail="quantity باید یک عدد مثبت باشد.")
+
+    def _work() -> dict[str, Any]:
+        broker, context = _paper_broker(settings)
+        try:
+            broker.settle_expired_positions()
+            order = broker.place_order(symbol, side, quantity, signal_id=signal_id)
+            return _serialize_order(order)
+        finally:
+            context.close()
+
+    try:
+        return await asyncio.to_thread(_work)
+    except Exception as exc:
+        logger.exception("ثبت سفارش کاغذی ناموفق بود.")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/paper-trading/orders")
+def get_paper_orders(limit: int | None = None) -> dict[str, Any]:
+    """تاریخچه سفارش‌های کاغذی، جدیدترین اول."""
+    settings = _settings()
+    broker, context = _paper_broker(settings)
+    try:
+        orders = broker.store.list_orders(limit=limit)
+    finally:
+        context.close()
+    return {"total": len(orders), "orders": orders}
+
+
+@app.get("/api/paper-trading/positions")
+async def get_paper_positions() -> dict[str, Any]:
+    """پوزیشن‌های باز کاغذی، همراه با P&L شناور روی عمق زنده."""
+    settings = _settings()
+
+    def _work() -> dict[str, Any]:
+        broker, context = _paper_broker(settings)
+        try:
+            broker.settle_expired_positions()
+            unrealized = broker.unrealized_pnl()
+            empty_pnl = {"mark_price": None, "pnl_absolute": None, "pnl_pct": None}
+            positions = [
+                {
+                    "symbol": p.symbol,
+                    "quantity": p.quantity,
+                    "average_price": p.average_price,
+                    **unrealized.get(p.symbol, empty_pnl),
+                }
+                for p in broker.get_positions()
+            ]
+            return {"positions": positions}
+        finally:
+            context.close()
+
+    try:
+        return await asyncio.to_thread(_work)
+    except Exception as exc:
+        logger.exception("خواندن پوزیشن‌های کاغذی ناموفق بود.")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/paper-trading/account")
+def get_paper_account() -> dict[str, Any]:
+    """موجودی و معیارهای کلی حساب کاغذی."""
+    settings = _settings()
+    broker, context = _paper_broker(settings)
+    try:
+        account = broker.store.get_account()
+        balance = broker.get_account_balance()
+        unrealized_total = sum(v["pnl_absolute"] for v in broker.unrealized_pnl().values())
+    finally:
+        context.close()
+
+    return {
+        "cash": balance["cash"],
+        "initial_balance": account["initial_balance"] if account else 0.0,
+        "unrealized_pnl": unrealized_total,
+        "equity": balance["cash"] + unrealized_total,
+    }
+
+
+@app.get("/api/paper-trading/report")
+def get_paper_report(days: int | None = None) -> dict[str, Any]:
+    """معیارهای عملکرد معاملات کاغذی بسته‌شده — همان تابع بک‌تست/گزارش زنده."""
+    settings = _settings()
+    broker, context = _paper_broker(settings)
+    try:
+        return {
+            "metrics": broker.performance_summary(days),
+            "recent": broker.store.list_trades(days),
+        }
+    finally:
+        context.close()
+
+
+@app.post("/api/paper-trading/reset")
+def reset_paper_account() -> dict[str, Any]:
+    """پاک‌کردن کامل حساب کاغذی و بازگرداندن موجودی به مقدار اولیه."""
+    settings = _settings()
+    _require_paper_trading_enabled(settings)
+    broker, context = _paper_broker(settings)
+    try:
+        account = broker.reset()
+    finally:
+        context.close()
+    return {"ok": True, "account": account}
 
 
 @app.get("/api/status")

@@ -227,15 +227,114 @@ def test_account_reports_broker_failure_without_crashing(client, monkeypatch):
 # ----------------------------------------------------------------------
 # ایمنی
 # ----------------------------------------------------------------------
-def test_web_layer_cannot_reach_execution():
-    """داشبورد نباید هیچ مسیری به ثبت سفارش داشته باشد.
+def test_web_layer_only_reaches_execution_through_paper_broker():
+    """داشبورد فقط از طریق `PaperBroker` (کاغذی/شبیه‌سازی) به execution می‌رسد.
 
     گارد AST سراسری در `test_signal_generator.py` کل مخزن را می‌پاید و
-    `web/` را هم پوشش می‌دهد؛ این تست همان قاعده را صریح و موضعی می‌کند.
+    یک استثنای تک‌فایلی صریح برای `web/api.py` دارد (تصمیم کاربر برای
+    معاملات کاغذی). این تست همان استثنا را صریح و موضعی می‌کند: import
+    مجاز است، ولی فقط دقیقاً به `execution.paper_broker`.
     """
     source = Path(importlib.import_module("web.api").__file__).read_text(encoding="utf-8")
-    assert "import execution" not in source
-    assert "from execution" not in source
+    assert "from execution.paper_broker import PaperBroker" in source
+    assert "import execution\n" not in source
+
+
+# ----------------------------------------------------------------------
+# معاملات کاغذی
+# ----------------------------------------------------------------------
+#: نماد و قیمت واقعی از پاسخ ضبط‌شده، برای تست بدون شبکه
+PAPER_SYMBOL = "ضهرم6040"
+PAPER_PRICE = 1000.0
+
+
+@pytest.fixture
+def paper_order_book(monkeypatch):
+    """جایگزینی عمق مظنه با یک دفتر ثابت، تا هیچ تماس شبکه‌ای برقرار نشود."""
+    from data.order_book import BookLevel, OrderBook, OrderBookClient
+
+    book = OrderBook(
+        PAPER_SYMBOL,
+        bids=(BookLevel(PAPER_PRICE - 10, 100),),
+        asks=(BookLevel(PAPER_PRICE, 100),),
+    )
+    monkeypatch.setattr(
+        OrderBookClient, "try_get_order_book", lambda self, ins_code, symbol="": book
+    )
+    return book
+
+
+def _enable_paper_trading(client) -> None:
+    response = client.put(
+        "/api/paper-trading/settings",
+        json={"enabled": True, "initial_balance": 1_000_000.0},
+    )
+    assert response.status_code == 200
+
+
+def test_paper_trading_is_disabled_by_default(client):
+    body = client.get("/api/paper-trading/settings").json()
+    assert body["enabled"] is False
+
+
+def test_paper_order_rejected_while_disabled(client, paper_order_book):
+    response = client.post(
+        "/api/paper-trading/orders",
+        json={"symbol": PAPER_SYMBOL, "side": "buy", "quantity": 1},
+    )
+    assert response.status_code == 400
+
+
+def test_paper_trading_settings_update_preserves_the_rest_of_the_file(client):
+    path = client.settings_path
+    before = _load(path)
+
+    _enable_paper_trading(client)
+
+    after = _load(path)
+    assert after["paper_trading"]["enabled"] is True
+    # کلیدهای بی‌ربط دست‌نخورده می‌مانند
+    assert after["market_data"] == before["market_data"]
+
+
+def test_paper_order_fills_from_the_real_order_book(client, paper_order_book):
+    _enable_paper_trading(client)
+
+    response = client.post(
+        "/api/paper-trading/orders",
+        json={"symbol": PAPER_SYMBOL, "side": "buy", "quantity": 2},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "filled"
+    assert body["price"] == PAPER_PRICE
+
+    positions = client.get("/api/paper-trading/positions").json()["positions"]
+    assert positions[0]["symbol"] == PAPER_SYMBOL
+    assert positions[0]["quantity"] == 2
+
+
+def test_paper_reset_clears_positions_and_restores_balance(client, paper_order_book):
+    _enable_paper_trading(client)
+    client.post(
+        "/api/paper-trading/orders",
+        json={"symbol": PAPER_SYMBOL, "side": "buy", "quantity": 2},
+    )
+
+    response = client.post("/api/paper-trading/reset")
+    assert response.status_code == 200
+    assert response.json()["account"]["cash"] == 1_000_000.0
+
+    positions = client.get("/api/paper-trading/positions").json()["positions"]
+    assert positions == []
+
+
+def test_paper_order_from_unknown_signal_returns_404(client, paper_order_book):
+    _enable_paper_trading(client)
+    response = client.post(
+        "/api/paper-trading/orders", json={"signal_id": "does-not-exist", "quantity": 1}
+    )
+    assert response.status_code == 404
 
 # ----------------------------------------------------------------------
 # انتخاب منبع داده

@@ -919,30 +919,30 @@ type var\emofid\api_inventory.md
 
 هر بار که خواستید یکی از این تسک‌ها انجام شود، بگویید کدام شماره را انجام دهم.
 
-- [ ] **PT-1**: به‌روزرسانی docstring و کامنت‌های `execution/order_executor_interface.py`
+- [x] **PT-1**: به‌روزرسانی docstring و کامنت‌های `execution/order_executor_interface.py`
       و README برای بازتاب اینکه `PaperBroker` پیاده‌سازی شبیه‌سازی‌شده‌ی این اینترفیس است
       (نه اتصال واقعی کارگزاری)
-- [ ] **PT-2**: ساخت `storage/paper_trading_store.py` — اسکیمای SQLite برای
+- [x] **PT-2**: ساخت `storage/paper_trading_store.py` — اسکیمای SQLite برای
       `paper_account` / `paper_orders` / `paper_positions` / `paper_trades`
       با همان الگوی `storage/signal_log.py`
-- [ ] **PT-3**: ساخت `execution/paper_broker.py` — کلاس `PaperBroker(OrderExecutorInterface)`
+- [x] **PT-3**: ساخت `execution/paper_broker.py` — کلاس `PaperBroker(OrderExecutorInterface)`
       با fill فوری بر پایه‌ی order book واقعی (`data/order_book.py`)، میانگین‌گیری وزنی
       پوزیشن، کارمزد (با شکل `risk.fees`)، و P&L
-- [ ] **PT-4**: افزودن متدهای کمکی روی `PaperBroker`: `unrealized_pnl`،
+- [x] **PT-4**: افزودن متدهای کمکی روی `PaperBroker`: `unrealized_pnl`،
       `settle_expired_positions` (بستن خودکار سر سررسید واقعی)، `performance_summary`
       (با استفاده از `backtest/metrics.py`)، `reset`
-- [ ] **PT-5**: افزودن بخش `paper_trading` به `config/loader.py::default_settings()`
+- [x] **PT-5**: افزودن بخش `paper_trading` به `config/loader.py::default_settings()`
       و `config/settings.example.yaml` (پیش‌فرض خاموش، موجودی اولیه، کارمزد صفر)
-- [ ] **PT-6**: ویرایش گاردِ AST در `tests/test_signal_generator.py`
+- [x] **PT-6**: ویرایش گاردِ AST در `tests/test_signal_generator.py`
       (`test_only_execution_layer_imports_execution`) برای افزودن استثنای تک‌فایلی
       `"web/api.py"` + به‌روزرسانی docstring ماژول `web/api.py`
-- [ ] **PT-7**: افزودن endpoint های جدید در `web/api.py` زیر `/api/paper-trading/*`
+- [x] **PT-7**: افزودن endpoint های جدید در `web/api.py` زیر `/api/paper-trading/*`
       (settings، orders، positions، account، report، reset) + اجرای سیگنال با یک کلیک
-- [ ] **PT-8**: افزودن تب و پنل «معاملات کاغذی» در `web/static/index.html` و `app.js`
+- [x] **PT-8**: افزودن تب و پنل «معاملات کاغذی» در `web/static/index.html` و `app.js`
       (فرم سفارش، جدول پوزیشن‌های باز، تاریخچه، دکمه ریست، دکمه اجرای سیگنال)
-- [ ] **PT-9**: نوشتن `tests/test_paper_broker.py` و `tests/test_paper_trading_store.py`
+- [x] **PT-9**: نوشتن `tests/test_paper_broker.py` و `tests/test_paper_trading_store.py`
       + افزودن تست‌های جدید به `tests/test_web_api.py` و `tests/test_bootstrap.py`
-- [ ] **PT-10**: اجرای کامل `pytest`، تست دستی در داشبورد (ثبت سفارش، بستن پوزیشن،
+- [x] **PT-10**: اجرای کامل `pytest`، تست دستی در داشبورد (ثبت سفارش، بستن پوزیشن،
       ریست حساب، اجرای سیگنال با یک کلیک) و بررسی نهایی diff قبل از merge
 
 ### بدهی فنی شناخته‌شده

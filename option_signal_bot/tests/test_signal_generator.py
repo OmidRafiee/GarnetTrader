@@ -91,17 +91,24 @@ def test_signal_layer_stays_pure(module_path: str):
     assert offenders == [], f"{module_path} نباید {offenders} را import کند."
 
 
+#: استثنای صریح و تک‌فایلی: داشبورد وب تنها فراخوان مجاز `PaperBroker`
+#: (معاملات کاغذی/شبیه‌سازی) است، با تصمیم صریح کاربر برای شروع همین
+#: قابلیت. این یک شل‌کردن کلی مرز execution نیست — فقط همین یک فایل.
+_EXECUTION_IMPORT_ALLOWED_PATHS = ("execution/", "tests/", "web/api.py")
+
+
 def test_only_execution_layer_imports_execution():
     """گارد سراسری: هیچ ماژول جدیدی هم نباید بی‌صدا به لایه اجرا وصل شود.
 
     این تست عمداً روی کل مخزن اجرا می‌شود تا با اضافه‌شدن فایل‌های آینده،
-    خودکار آن‌ها را هم پوشش بدهد.
+    خودکار آن‌ها را هم پوشش بدهد. تنها استثنا `web/api.py` است، برای
+    فراخوانی `PaperBroker` از endpoint های معاملات کاغذی.
     """
     root = Path(__file__).resolve().parent.parent
     offenders = []
     for path in _project_modules(root):
         relative = path.relative_to(root).as_posix()
-        if relative.startswith(("execution/", "tests/")):
+        if relative.startswith(_EXECUTION_IMPORT_ALLOWED_PATHS):
             continue
         if any(m.split(".")[0] == "execution" for m in _imported_modules(path)):
             offenders.append(relative)
