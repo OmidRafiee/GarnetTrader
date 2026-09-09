@@ -1369,9 +1369,13 @@ async function loadPaperOrders() {
 
 $("#btn-refresh-paper-orders").addEventListener("click", loadPaperOrders);
 
-// ------------------------------------------------------------------ paper order form: underlying + chain
-async function loadPaperOrderUnderlyings() {
-  const sel = $("#paper-order-underlying");
+// ------------------------------------------------------------------ paper order form: chain filter bar + table
+const OPTION_TYPE_LABEL = { call: "کال", put: "پوت" };
+//: زنجیره‌ی کامل نماد پایه‌ی فعلی — فیلترهای سررسید/نوع روی همین کش عمل می‌کنند
+let paperChainContracts = [];
+
+async function loadPaperChainUnderlyings() {
+  const sel = $("#paper-chain-underlying");
   if (sel.options.length) return;  // فقط یک‌بار پر می‌شود
   try {
     const d = await api("/api/symbols");
@@ -1382,44 +1386,88 @@ async function loadPaperOrderUnderlyings() {
     });
     // پرکردن اولیه: مرورگر خودش اولین گزینه را انتخاب می‌کند ولی
     // رویداد change شلیک نمی‌شود، پس زنجیره‌اش را دستی بار می‌کنیم
-    if (sel.value) await loadPaperOrderChain();
+    if (sel.value) await loadPaperChain();
   } catch { /* دراپ‌داون خالی می‌ماند؛ کاربر پیام خطای زنجیره را می‌بیند */ }
 }
 
-const OPTION_TYPE_LABEL = { call: "کال", put: "پوت" };
+function selectPaperContract(symbol) {
+  $("#paper-order-symbol").value = symbol;
+  $("#paper-chain-table").querySelectorAll("tbody tr").forEach((tr) => {
+    tr.classList.toggle("selected", tr.dataset.symbol === symbol);
+  });
+}
 
-async function loadPaperOrderChain() {
-  const underlying = $("#paper-order-underlying").value;
-  const symbolSel = $("#paper-order-symbol");
-  symbolSel.innerHTML = "";
+function renderPaperChainTable() {
+  const box = $("#paper-chain-table");
+  box.innerHTML = "";
 
-  if (!underlying) {
-    symbolSel.append(el("option", "", "— اول نماد پایه را انتخاب کنید —"));
+  const expiry = $("#paper-chain-expiry").value;
+  const type = $("#paper-chain-type").value;
+  const filtered = paperChainContracts.filter(
+    (c) => (!expiry || c.expiry === expiry) && (!type || c.option_type === type)
+  );
+
+  if (!filtered.length) {
+    box.append(el("p", "empty", "با این فیلتر قراردادی نیست."));
     return;
   }
 
-  symbolSel.append(el("option", "", "در حال بارگذاری…"));
+  const rows = filtered.map((c) => [
+    c.symbol, OPTION_TYPE_LABEL[c.option_type] || c.option_type, fmt(c.strike), c.expiry,
+  ]);
+  const table = buildTable(["نماد", "نوع", "قیمت اعمال", "سررسید"], rows);
+  table.querySelectorAll("tbody tr").forEach((tr, i) => {
+    tr.dataset.symbol = filtered[i].symbol;
+    tr.classList.add("clickable");
+    tr.addEventListener("click", () => selectPaperContract(filtered[i].symbol));
+  });
+  box.append(table);
+  // انتخاب فعلی (اگر هنوز در نتیجه‌ی فیلترشده باشد) را دوباره برجسته کن
+  selectPaperContract($("#paper-order-symbol").value);
+}
+
+function fillPaperChainExpiries() {
+  const sel = $("#paper-chain-expiry");
+  const prev = sel.value;
+  sel.innerHTML = "";
+  const allOption = el("option", "", "همه سررسیدها");
+  allOption.value = "";
+  sel.append(allOption);
+  [...new Set(paperChainContracts.map((c) => c.expiry))].sort().forEach((e) => {
+    const o = el("option", "", e);
+    o.value = e;
+    sel.append(o);
+  });
+  if ([...sel.options].some((o) => o.value === prev)) sel.value = prev;
+}
+
+async function loadPaperChain() {
+  const underlying = $("#paper-chain-underlying").value;
+  const box = $("#paper-chain-table");
+  $("#paper-order-symbol").value = "";
+  paperChainContracts = [];
+
+  if (!underlying) {
+    box.innerHTML = "";
+    box.append(el("p", "empty", "اول نماد پایه را انتخاب کنید."));
+    return;
+  }
+
+  box.innerHTML = '<p class="empty">در حال بارگذاری زنجیره…</p>';
   try {
     const d = await api("/api/paper-trading/chain?underlying=" + encodeURIComponent(underlying));
-    symbolSel.innerHTML = "";
-    if (!d.contracts.length) {
-      symbolSel.append(el("option", "", "زنجیره‌ای یافت نشد"));
-      return;
-    }
-    d.contracts.forEach((c) => {
-      const label = `${c.symbol} — ${OPTION_TYPE_LABEL[c.option_type] || c.option_type} ` +
-        `${fmt(c.strike)} (${c.expiry})`;
-      const o = el("option", "", label);
-      o.value = c.symbol;
-      symbolSel.append(o);
-    });
+    paperChainContracts = d.contracts;
+    fillPaperChainExpiries();
+    renderPaperChainTable();
   } catch (err) {
-    symbolSel.innerHTML = "";
-    symbolSel.append(el("option", "", "خطا: " + err.message));
+    box.innerHTML = "";
+    box.append(el("div", "error", "خطا: " + err.message));
   }
 }
 
-$("#paper-order-underlying").addEventListener("change", loadPaperOrderChain);
+$("#paper-chain-underlying").addEventListener("change", loadPaperChain);
+$("#paper-chain-expiry").addEventListener("change", renderPaperChainTable);
+$("#paper-chain-type").addEventListener("change", renderPaperChainTable);
 
 $("#btn-paper-order").addEventListener("click", async () => {
   const note = $("#paper-order-note");
@@ -1429,7 +1477,7 @@ $("#btn-paper-order").addEventListener("click", async () => {
 
   if (!symbol || !quantity) {
     note.className = "note bad";
-    note.textContent = "نماد پایه، زنجیره اختیار و تعداد را انتخاب کنید.";
+    note.textContent = "یک قرارداد از جدول زنجیره انتخاب کنید و تعداد را وارد کنید.";
     return;
   }
 
@@ -1480,7 +1528,7 @@ async function loadPaperTab() {
     loadPaperAccount(),
     loadPaperPositions(),
     loadPaperOrders(),
-    loadPaperOrderUnderlyings(),
+    loadPaperChainUnderlyings(),
   ]);
 }
 

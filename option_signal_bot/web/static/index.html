@@ -245,16 +245,26 @@
 
     <div class="card">
       <h3>ثبت سفارش دستی</h3>
-      <div class="params">
+      <p class="hint">
+        اول نماد پایه، سررسید و نوع قرارداد را فیلتر کنید، بعد از جدول یک قرارداد را انتخاب کنید.
+      </p>
+      <div class="toolbar">
+        <select id="paper-chain-underlying"></select>
+        <select id="paper-chain-expiry">
+          <option value="">همه سررسیدها</option>
+        </select>
+        <select id="paper-chain-type">
+          <option value="">کال و پوت</option>
+          <option value="call">فقط کال</option>
+          <option value="put">فقط پوت</option>
+        </select>
+      </div>
+      <div id="paper-chain-table"><p class="empty">در حال بارگذاری…</p></div>
+
+      <div class="params" style="margin-top:14px">
         <div class="field">
-          <label>نماد پایه</label>
-          <select id="paper-order-underlying"></select>
-        </div>
-        <div class="field">
-          <label>زنجیره اختیار</label>
-          <select id="paper-order-symbol">
-            <option value="">— اول نماد پایه را انتخاب کنید —</option>
-          </select>
+          <label>قرارداد انتخاب‌شده</label>
+          <input type="text" id="paper-order-symbol" readonly placeholder="از جدول بالا انتخاب کنید">
         </div>
         <div class="field">
           <label>سمت</label>
