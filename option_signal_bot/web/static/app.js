@@ -1374,6 +1374,9 @@ async function loadPaperOrderUnderlyings() {
       o.value = s;
       sel.append(o);
     });
+    // پرکردن اولیه: مرورگر خودش اولین گزینه را انتخاب می‌کند ولی
+    // رویداد change شلیک نمی‌شود، پس زنجیره‌اش را دستی بار می‌کنیم
+    if (sel.value) await loadPaperOrderChain();
   } catch { /* دراپ‌داون خالی می‌ماند؛ کاربر پیام خطای زنجیره را می‌بیند */ }
 }
 
