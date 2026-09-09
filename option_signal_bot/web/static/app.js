@@ -1203,14 +1203,20 @@ function structureCard(s) {
 
 // ------------------------------------------------------------------ paper trading
 async function loadPaperSettings() {
-  const d = await api("/api/paper-trading/settings");
-  $("#paper-enabled").checked = !!d.enabled;
-  $("#paper-initial-balance").value = d.initial_balance ?? "";
-  const fees = d.fees || {};
-  $("#paper-fee-buy").value = fees.buy_rate ?? 0;
-  $("#paper-fee-sell").value = fees.sell_rate ?? 0;
-  $("#paper-fee-tax").value = fees.sell_tax_rate ?? 0;
-  $("#paper-fee-per-order").value = fees.per_order ?? 0;
+  try {
+    const d = await api("/api/paper-trading/settings");
+    $("#paper-enabled").checked = !!d.enabled;
+    $("#paper-initial-balance").value = d.initial_balance ?? "";
+    const fees = d.fees || {};
+    $("#paper-fee-buy").value = fees.buy_rate ?? 0;
+    $("#paper-fee-sell").value = fees.sell_rate ?? 0;
+    $("#paper-fee-tax").value = fees.sell_tax_rate ?? 0;
+    $("#paper-fee-per-order").value = fees.per_order ?? 0;
+  } catch (err) {
+    const note = $("#paper-settings-note");
+    note.className = "note bad";
+    note.textContent = err.message;
+  }
 }
 
 $("#btn-save-paper-settings").addEventListener("click", async () => {
@@ -1468,8 +1474,9 @@ async function executeSignalAsPaperOrder(signal, btn) {
 }
 
 async function loadPaperTab() {
-  await loadPaperSettings();
+  // موازی و مستقل: خطای یک بخش (مثلاً تنظیمات) نباید بقیه پنل را خالی نگه دارد
   await Promise.all([
+    loadPaperSettings(),
     loadPaperAccount(),
     loadPaperPositions(),
     loadPaperOrders(),
